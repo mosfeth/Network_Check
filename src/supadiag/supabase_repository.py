@@ -1,0 +1,200 @@
+from __future__ import annotations
+
+import httpx
+from supabase import create_client, Client
+
+from .config import Settings
+from .models import Client, Machine, MeasurementSample
+
+
+class RepositoryError(RuntimeError):
+    pass
+
+
+class SupabaseRepository:
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+        self.client: Client = create_client(settings.supabase_url, settings.supabase_key)
+
+    def health_check(self) -> tuple[bool, str]:
+        try:
+            response = httpx.get(
+                f"{self.settings.supabase_url}/rest/v1/",
+                headers={
+                    "apikey": self.settings.supabase_key,
+                    "Authorization": f"Bearer {self.settings.supabase_key}",
+                },
+                timeout=5.0,
+            )
+            if 200 <= response.status_code < 300:
+                return True, "Supabase disponível"
+            return False, f"Supabase respondeu com status {response.status_code}"
+        except httpx.HTTPError as exc:
+            return False, f"Falha de conexão com Supabase: {exc}"
+
+    def _execute(self, query):
+        try:
+            response = query.execute()
+        except Exception as exc:
+            raise RepositoryError(f"Erro ao executar consulta: {exc}") from exc
+        error = getattr(response, "error", None)
+        if error:
+            raise RepositoryError(str(error))
+        return response.data
+
+    def create_client(self, name: str) -> Client:
+        data = self._execute(self.client.table("clients").insert({"name": name}))
+        row = data[0] if data else {}
+        return Client(
+            id=row.get("id"),
+            name=row.get("name"),
+            created_at=row.get("created_at"),
+        )
+
+    def list_clients(self) -> list[Client]:
+        data = self._execute(self.client.table("clients").select("*").order("name"))
+        return [
+            Client(id=row["id"], name=row["name"], created_at=row["created_at"])
+            for row in data
+        ]
+
+    def get_client(self, client_id: str) -> Client | None:
+        data = self._execute(
+            self.client.table("clients").select("*").eq("id", client_id).limit(1)
+        )
+        if not data:
+            return None
+        row = data[0]
+        return Client(id=row["id"], name=row["name"], created_at=row["created_at"])
+
+    def update_client(self, client_id: str, name: str) -> Client:
+        data = self._execute(
+            self.client.table("clients").update({"name": name}).eq("id", client_id)
+        )
+        row = data[0] if data else {}
+        return Client(
+            id=row.get("id"),
+            name=row.get("name"),
+            created_at=row.get("created_at"),
+        )
+
+    def delete_client(self, client_id: str) -> None:
+        self._execute(self.client.table("clients").delete().eq("id", client_id))
+
+    def create_machine(
+        self,
+        client_id: str,
+        tag: str,
+        ip: str,
+        frequency_seconds: int,
+    ) -> Machine:
+        payload = {
+            "client_id": client_id,
+            "tag": tag,
+            "ip": ip,
+            "frequency_seconds": frequency_seconds,
+            "active": True,
+        }
+        data = self._execute(self.client.table("machines").insert(payload))
+        row = data[0] if data else {}
+        return Machine(
+            id=row.get("id"),
+            client_id=row.get("client_id"),
+            tag=row.get("tag"),
+            ip=row.get("ip"),
+            frequency_seconds=row.get("frequency_seconds"),
+            active=row.get("active"),
+            created_at=row.get("created_at"),
+        )
+
+    def list_machines(self, client_id: str | None = None, active_only: bool = False) -> list[Machine]:
+        query = self.client.table("machines").select("*").order("tag")
+        if client_id:
+            query = query.eq("client_id", client_id)
+        if active_only:
+            query = query.eq("active", True)
+        data = self._execute(query)
+        return [
+            Machine(
+                id=row["id"],
+                client_id=row["client_id"],
+                tag=row["tag"],
+                ip=row["ip"],
+                frequency_seconds=row["frequency_seconds"],
+                active=row["active"],
+                created_at=row["created_at"],
+            )
+            for row in data
+        ]
+
+    def get_machine(self, machine_id: str) -> Machine | None:
+        data = self._execute(
+            self.client.table("machines").select("*").eq("id", machine_id).limit(1)
+        )
+        if not data:
+            return None
+        row = data[0]
+        return Machine(
+            id=row["id"],
+            client_id=row["client_id"],
+            tag=row["tag"],
+            ip=row["ip"],
+            frequency_seconds=row["frequency_seconds"],
+            active=row["active"],
+            created_at=row["created_at"],
+        )
+
+    def update_machine(
+        self,
+        machine_id: str,
+        tag: str | None = None,
+        ip: str | None = None,
+        frequency_seconds: int | None = None,
+        active: bool | None = None,
+    ) -> Machine:
+        payload = {}
+        if tag is not None:
+            payload["tag"] = tag
+        if ip is not None:
+            payload["ip"] = ip
+        if frequency_seconds is not None:
+            payload["frequency_seconds"] = frequency_seconds
+        if active is not None:
+            payload["active"] = active
+        if not payload:
+            return self.get_machine(machine_id)  # type: ignore
+        data = self._execute(
+            self.client.table("machines").update(payload).eq("id", machine_id)
+        )
+        row = data[0] if data else {}
+        return Machine(
+            id=row.get("id"),
+            client_id=row.get("client_id"),
+            tag=row.get("tag"),
+            ip=row.get("ip"),
+            frequency_seconds=row.get("frequency_seconds"),
+            active=row.get("active"),
+            created_at=row.get("created_at"),
+        )
+
+    def delete_machine(self, machine_id: str) -> None:
+        self._execute(self.client.table("machines").delete().eq("id", machine_id))
+
+    def save_measurement(self, sample: MeasurementSample) -> None:
+        payload = sample.as_insert()
+        self._execute(self.client.table("measurements").insert(payload))
+
+    def latest_measurements(self, limit: int = 50) -> list[dict]:
+        data = self._execute(
+            self.client.table("measurements")
+            .select("*, machines(tag, ip)")
+            .order("measured_at", desc=True)
+            .limit(limit)
+        )
+        return data
+
+    def cleanup_old_measurements(self, cutoff_iso: str) -> int:
+        data = self._execute(
+            self.client.table("measurements").delete().lt("measured_at", cutoff_iso)
+        )
+        return len(data) if data else 0

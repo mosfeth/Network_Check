@@ -1,0 +1,245 @@
+from __future__ import annotations
+
+import argparse
+import asyncio
+import sys
+from pathlib import Path
+
+from .config import ConfigError, load_settings, ensure_runtime_files, public_dict
+from .diary import Diary
+from .monitor import MonitorService
+from .queue import LocalQueue
+from .supabase_repository import SupabaseRepository
+
+
+def create_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="supadiag", description="SupaDiag - Monitoramento de rede")
+    subparsers = parser.add_subparsers(dest="command", required=False)
+
+    # check
+    subparsers.add_parser("check", help="Verifica conexão com Supabase")
+
+    # schema
+    subparsers.add_parser("schema", help="Mostra caminho do script SQL de migração")
+
+    # client
+    client_parser = subparsers.add_parser("client", help="Gerencia clientes")
+    client_sub = client_parser.add_subparsers(dest="client_action", required=True)
+    add_client = client_sub.add_parser("add", help="Adiciona cliente")
+    add_client.add_argument("--name", required=True, help="Nome do cliente")
+    list_client = client_sub.add_parser("list", help="Lista clientes")
+    update_client = client_sub.add_parser("update", help="Atualiza cliente")
+    update_client.add_argument("--id", required=True, help="ID do cliente")
+    update_client.add_argument("--name", required=True, help="Novo nome")
+    delete_client = client_sub.add_parser("delete", help="Remove cliente")
+    delete_client.add_argument("--id", required=True, help="ID do cliente")
+
+    # machine
+    machine_parser = subparsers.add_parser("machine", help="Gerencia máquinas")
+    machine_sub = machine_parser.add_subparsers(dest="machine_action", required=True)
+    add_machine = machine_sub.add_parser("add", help="Adiciona máquina")
+    add_machine.add_argument("--client-id", required=True, help="ID do cliente")
+    add_machine.add_argument("--tag", required=True, help="Tag da máquina")
+    add_machine.add_argument("--ip", required=True, help="IP da máquina")
+    add_machine.add_argument("--frequency", type=int, required=True, help="Frequência em segundos")
+    list_machine = machine_sub.add_parser("list", help="Lista máquinas")
+    list_machine.add_argument("--client-id", help="Filtrar por cliente")
+    list_machine.add_argument("--active-only", action="store_true", help="Apenas ativas")
+    update_machine = machine_sub.add_parser("update", help="Atualiza máquina")
+    update_machine.add_argument("--id", required=True, help="ID da máquina")
+    update_machine.add_argument("--tag", help="Nova tag")
+    update_machine.add_argument("--ip", help="Novo IP")
+    update_machine.add_argument("--frequency", type=int, help="Nova frequência")
+    update_machine.add_argument("--active", type=lambda x: x.lower() == "true", help="Ativo (true/false)")
+    delete_machine = machine_sub.add_parser("delete", help="Remove máquina")
+    delete_machine.add_argument("--id", required=True, help="ID da máquina")
+
+    # monitor
+    monitor_parser = subparsers.add_parser("monitor", help="Executa monitoramento")
+    monitor_parser.add_argument("--once", action="store_true", help="Executa apenas um ciclo")
+    monitor_parser.add_argument("--cycles", type=int, help="Número de ciclos (infinito se omitido)")
+
+    # service
+    service_parser = subparsers.add_parser("service", help="Gerencia serviço do Agendador de Tarefas")
+    service_sub = service_parser.add_subparsers(dest="service_action", required=True)
+    service_sub.add_parser("install", help="Instala tarefa no Agendador")
+    service_sub.add_parser("status", help="Status da tarefa")
+    service_sub.add_parser("remove", help="Remove tarefa")
+
+    # diary
+    diary_parser = subparsers.add_parser("diary", help="Mostra o diário (memory.txt)")
+    diary_parser.add_argument("--lines", type=int, default=50, help="Últimas N linhas")
+
+    # app (interactive)
+    subparsers.add_parser("app", help="Inicia interface interativa (Textual)")
+
+    return parser
+
+
+def load_app() -> tuple[Settings, Diary, SupabaseRepository, LocalQueue]:
+    settings = load_settings()
+    ensure_runtime_files(settings)
+    diary = Diary(settings.memory_file)
+    repo = SupabaseRepository(settings)
+    queue = LocalQueue(settings.queue_file)
+    return settings, diary, repo, queue
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    settings, diary, repo, _ = load_app()
+    ok, msg = repo.health_check()
+    print(f"Supabase: {'OK' if ok else 'FALHA'} - {msg}")
+    diary.log("CHECK", msg, {"ok": ok})
+    return 0 if ok else 1
+
+
+def cmd_schema(args: argparse.Namespace) -> int:
+    path = Path(__file__).resolve().parents[2] / "sql" / "001_schema.sql"
+    print(f"Script de migração: {path}")
+    if path.exists():
+        print(path.read_text(encoding="utf-8"))
+    else:
+        print("Arquivo não encontrado.")
+    return 0
+
+
+def cmd_client(args: argparse.Namespace) -> int:
+    settings, diary, repo, _ = load_app()
+    if args.client_action == "add":
+        client = repo.create_client(args.name)
+        print(f"Cliente criado: {client.id} - {client.name}")
+        diary.log("CLIENTE_CRIADO", client.name, {"client_id": client.id})
+    elif args.client_action == "list":
+        clients = repo.list_clients()
+        for c in clients:
+            print(f"{c.id} | {c.name} | {c.created_at}")
+    elif args.client_action == "update":
+        client = repo.update_client(args.id, args.name)
+        print(f"Cliente atualizado: {client.id} - {client.name}")
+        diary.log("CLIENTE_ATUALIZADO", client.name, {"client_id": client.id})
+    elif args.client_action == "delete":
+        repo.delete_client(args.id)
+        print(f"Cliente {args.id} removido")
+        diary.log("CLIENTE_REMOVIDO", "Cliente removido", {"client_id": args.id})
+    return 0
+
+
+def cmd_machine(args: argparse.Namespace) -> int:
+    settings, diary, repo, _ = load_app()
+    if args.machine_action == "add":
+        machine = repo.create_machine(args.client_id, args.tag, args.ip, args.frequency)
+        print(f"Máquina criada: {machine.id} - {machine.tag} ({machine.ip})")
+        diary.log("MAQUINA_CRIADA", machine.tag, {"machine_id": machine.id, "client_id": machine.client_id})
+    elif args.machine_action == "list":
+        machines = repo.list_machines(client_id=args.client_id, active_only=args.active_only)
+        for m in machines:
+            print(f"{m.id} | {m.client_id} | {m.tag} | {m.ip} | {m.frequency_seconds}s | {'ativa' if m.active else 'inativa'}")
+    elif args.machine_action == "update":
+        machine = repo.update_machine(
+            args.id,
+            tag=args.tag,
+            ip=args.ip,
+            frequency_seconds=args.frequency,
+            active=args.active,
+        )
+        print(f"Máquina atualizada: {machine.id} - {machine.tag}")
+        diary.log("MAQUINA_ATUALIZADA", machine.tag, {"machine_id": machine.id})
+    elif args.machine_action == "delete":
+        repo.delete_machine(args.id)
+        print(f"Máquina {args.id} removida")
+        diary.log("MAQUINA_REMOVIDA", "Máquina removida", {"machine_id": args.id})
+    return 0
+
+
+def cmd_monitor(args: argparse.Namespace) -> int:
+    settings, diary, repo, queue = load_app()
+    monitor = MonitorService(settings, repo, queue, diary)
+    if args.once:
+        asyncio.run(monitor.run_cycle())
+    else:
+        cycles = args.cycles
+        async def run():
+            for _ in range(cycles) if cycles else iter(int, 1):
+                if monitor._stop.is_set():
+                    break
+                await monitor.run_cycle()
+                await asyncio.sleep(1)
+        try:
+            asyncio.run(run())
+        except KeyboardInterrupt:
+            print("Monitor interrompido")
+    return 0
+
+
+def cmd_service(args: argparse.Namespace) -> int:
+    settings, diary, _, _ = load_app()
+    from .scheduler import WindowsScheduler
+    scheduler = WindowsScheduler(settings)
+    if args.service_action == "install":
+        status = scheduler.install()
+        print(f"Tarefa instalada: {status.installed}")
+        print(status.output)
+        diary.log("SERVICO_INSTALADO", "Tarefa agendada criada")
+    elif args.service_action == "status":
+        status = scheduler.status()
+        print(f"Instalada: {status.installed}")
+        print(status.output)
+    elif args.service_action == "remove":
+        scheduler.remove()
+        print("Tarefa removida")
+        diary.log("SERVICO_REMOVIDO", "Tarefa agendada removida")
+    return 0
+
+
+def cmd_diary(args: argparse.Namespace) -> int:
+    settings, diary, _, _ = load_app()
+    lines = args.lines
+    if settings.memory_file.exists():
+        content = settings.memory_file.read_text(encoding="utf-8").strip().splitlines()
+        for line in content[-lines:]:
+            print(line)
+    else:
+        print("Diário vazio.")
+    return 0
+
+
+def cmd_app(args: argparse.Namespace) -> int:
+    from .tui import SupaDiagApp
+    settings, diary, repo, queue = load_app()
+    app = SupaDiagApp(settings, diary, repo, queue)
+    app.run()
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = create_parser()
+    args = parser.parse_args(argv)
+    if args.command is None:
+        # default to interactive app
+        return cmd_app(args)
+    command_map = {
+        "check": cmd_check,
+        "schema": cmd_schema,
+        "client": cmd_client,
+        "machine": cmd_machine,
+        "monitor": cmd_monitor,
+        "service": cmd_service,
+        "diary": cmd_diary,
+        "app": cmd_app,
+    }
+    handler = command_map.get(args.command)
+    if not handler:
+        parser.print_help()
+        return 1
+    try:
+        return handler(args)
+    except ConfigError as exc:
+        print(f"Erro de configuração: {exc}")
+        return 2
+    except Exception as exc:
+        print(f"Erro inesperado: {exc}")
+        return 3
+
+
+if __name__ == "__main__":
+    sys.exit(main())

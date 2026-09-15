@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Virtual environments
+FrontEnd/venv/
+*.venv/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Data / Logs
+data/
+*.log
+debug_tui.log
+memory.txt
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build
+dist/
+build/
+*.egg-info/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Temporary files
+*.tmp
+*.temp
+test_*.py
+check_*.py
+fix_*.py

@@ -1,0 +1,105 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime
+from ipaddress import ip_address
+from typing import Any
+
+
+@dataclass(frozen=True)
+class Client:
+    id: str
+    name: str
+    created_at: str
+
+
+@dataclass(frozen=True)
+class Machine:
+    id: str
+    client_id: str
+    tag: str
+    ip: str
+    frequency_seconds: int
+    active: bool
+    created_at: str
+
+
+@dataclass(frozen=True)
+class Measurement:
+    id: str | None
+    client_id: str
+    machine_id: str
+    latency_ms: float | None
+    jitter_ms: float | None
+    packet_loss_percent: float
+    packets_sent: int
+    packets_received: int
+    status: str
+    measured_at: str
+
+
+@dataclass(frozen=True)
+class MeasurementSample:
+    client_id: str
+    machine_id: str
+    latency_ms: float | None
+    jitter_ms: float | None
+    packet_loss_percent: float
+    packets_sent: int
+    packets_received: int
+    status: str
+    measured_at: str | None = None
+
+    def as_insert(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "client_id": self.client_id,
+            "machine_id": self.machine_id,
+            "latency_ms": self.latency_ms,
+            "jitter_ms": self.jitter_ms,
+            "packet_loss_percent": self.packet_loss_percent,
+            "packets_sent": self.packets_sent,
+            "packets_received": self.packets_received,
+            "status": self.status,
+        }
+        if self.measured_at is not None:
+            payload["measured_at"] = self.measured_at
+        return payload
+
+
+def validate_ip(value: str) -> str:
+    try:
+        return str(ip_address(value.strip()))
+    except ValueError as exc:
+        raise ValueError(f"IP inválido: {value}") from exc
+
+
+def validate_tag(value: str) -> str:
+    tag = value.strip()
+    if not tag:
+        raise ValueError("A tag da máquina é obrigatória.")
+    if len(tag) > 120:
+        raise ValueError("A tag da máquina deve ter no máximo 120 caracteres.")
+    return tag
+
+
+def validate_client_name(value: str) -> str:
+    name = value.strip()
+    if not name:
+        raise ValueError("O nome do cliente é obrigatório.")
+    if len(name) > 160:
+        raise ValueError("O nome do cliente deve ter no máximo 160 caracteres.")
+    return name
+
+
+def validate_frequency(value: int | str) -> int:
+    try:
+        frequency = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("A frequência deve ser um número inteiro em segundos.") from exc
+    if frequency < 10:
+        raise ValueError("A frequência mínima é de 10 segundos.")
+    return frequency
+
+
+def utc_now_iso() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")
