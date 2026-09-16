@@ -140,6 +140,7 @@ class MonitorService:
                 # Salva medição
                 try:
                     await asyncio.to_thread(self.repository.save_measurement, sample)
+                    self._last_internet_status[internet_machine.id] = sample.status
                     self.diary.log(
                         "INTERNET_CHECK_OK",
                         f"Verificação internet {client.name}",
@@ -210,28 +211,15 @@ class MonitorService:
             )
     
     def _should_run_internet_traceroute(self, machine_id: str, now: float) -> bool:
-        """Verifica se deve rodar traceroute para INTERNET-CHECK (qualidade mudou de OK)."""
-        latest_status = self._last_internet_status.get(machine_id, "ok")
-        current_status = self._get_internet_status(machine_id)
-        
-        if latest_status == "ok" and current_status != "ok":
-            self._last_internet_status[machine_id] = current_status
-            if self._is_traceroute_due(machine_id, now):
-                return True
+        """Verifica se deve rodar traceroute para INTERNET-CHECK."""
+        current_status = self._last_internet_status.get(machine_id, "ok")
+        if current_status == "ok":
             return False
-        
-        self._last_internet_status[machine_id] = current_status
+        last_run = self._last_traceroute.get(machine_id, 0)
+        if now - last_run >= 300:
+            self._last_traceroute[machine_id] = now
+            return True
         return False
-    
-    def _get_internet_status(self, machine_id: str) -> str:
-        """Retorna o status da última medição do INTERNET-CHECK."""
-        try:
-            measurements = self.repository.get_measurements_window(machine_id, 300)
-            if measurements:
-                return measurements[0].get("status", "ok")
-        except Exception:
-            pass
-        return "ok"
     
     async def _get_or_create_internet_machine(self, client_id: str) -> Machine | None:
         """Busca ou cria máquina de internet check para o cliente."""
