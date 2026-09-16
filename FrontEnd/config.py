@@ -16,7 +16,7 @@ class FrontendSettings:
     SUPABASE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
     
     # Configurações de exibição
-    PAGE_TITLE: str = "AI Network Analyzer"
+    PAGE_TITLE: str = "NetPulse"
     PAGE_ICON: str = "🌐"
     LAYOUT: str = "wide"
     

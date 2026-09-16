@@ -1,5 +1,5 @@
 ﻿# FrontEnd/app.py
-# Dashboard Principal - AI Network Analyzer
+# Dashboard Principal - NetPulse
 
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
@@ -31,10 +31,11 @@ st.set_page_config(
 st.markdown("""
 <style>
     .main-header {
-        font-size: 2.5rem;
-        font-weight: 700;
+        font-size: 3rem;
+        font-weight: 800;
         color: #1f77b4;
         margin-bottom: 0.5rem;
+        letter-spacing: -0.02em;
     }
     .sub-header {
         font-size: 1.1rem;
@@ -137,7 +138,7 @@ def get_diary_events(limit: int = 30) -> list[dict]:
 
 def render_cards_view(repo: FrontendRepository, client_id: Optional[str]) -> None:
     """Renderiza a view de cards (lista de máquinas)."""
-    st.markdown('<h1 class="main-header">AI Network Analyzer</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">NetPulse</h1>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">Clique em um card para ver métricas detalhadas da máquina</p>', unsafe_allow_html=True)
     
     # Tenta buscar máquinas com status
@@ -388,12 +389,13 @@ def main() -> None:
     # Sidebar
     filters = render_sidebar_filters(repo)
     
-    # Status do Cloud na sidebar
+    # Sidebar content
     with st.sidebar:
+        # Cloud status
         if st.session_state.get("health_ok"):
-            st.success(f"✅ {st.session_state.health_msg}")
+            st.success("☁️ Cloud Online")
         else:
-            st.error(f"❌ {st.session_state.health_msg}")
+            st.error("❌ Cloud Offline")
         
         # Alertas ativos no sidebar
         st.divider()
@@ -448,9 +450,8 @@ def main() -> None:
         except Exception:
             st.caption("Nenhum evento disponível")
     
-    # Auto-refresh não-bloqueante (a cada 30 segundos)
-    if filters["auto_refresh"]:
-        st_autorefresh(interval=30_000, key="auto_refresh")
+    # Auto-refresh (sempre ativo, a cada 30 segundos)
+    st_autorefresh(interval=30_000, key="auto_refresh")
     
     # Roteamento de views
     if st.session_state.view_mode == "detail":

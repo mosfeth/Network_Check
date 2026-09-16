@@ -310,7 +310,7 @@ def render_sidebar_filters(repo) -> dict:
     Renderiza filtros na sidebar e retorna parâmetros selecionados.
     
     Returns:
-        Dict com: client_id, auto_refresh
+        Dict com: client_id
     """
     with st.sidebar:
         st.markdown("## ⚙️ Filtros")
@@ -328,20 +328,10 @@ def render_sidebar_filters(repo) -> dict:
         selected_client_id = client_options[selected_client_name]
         
         st.divider()
-        
-        # Auto-refresh
-        auto_refresh = st.checkbox("🔄 Auto-atualizar (30s)", value=False)
-        
-        if st.button("🔄 Atualizar Agora", use_container_width=True):
-            st.rerun()
-        
-        st.divider()
-        st.caption("AI Network Analyzer v1.0")
-        st.caption(f"Fonte: Cloud ({settings.SUPABASE_URL[:30]}...)")
+        st.caption("NetPulse")
     
     return {
         "client_id": selected_client_id,
-        "auto_refresh": auto_refresh,
     }
 
 
