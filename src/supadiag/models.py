@@ -66,6 +66,24 @@ class MeasurementSample:
         return payload
 
 
+@dataclass(frozen=True)
+class TracerouteHop:
+    hop_number: int
+    ip: str | None
+    hostname: str | None
+    latency_ms: float | None
+    packet_loss_percent: float
+
+
+@dataclass(frozen=True)
+class TracerouteResult:
+    target_ip: str
+    max_hops: int
+    total_hops: int
+    destination_reached: bool
+    hops: list[TracerouteHop]
+
+
 def validate_ip(value: str) -> str:
     try:
         return str(ip_address(value.strip()))

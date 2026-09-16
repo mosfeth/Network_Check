@@ -11,9 +11,10 @@ from typing import Callable, Optional
 from .config import Settings
 from .diary import Diary
 from .icmp import measure_host
-from .models import Machine, MeasurementSample
+from .models import Machine, MeasurementSample, TracerouteResult
 from .queue import LocalQueue
 from .supabase_repository import SupabaseRepository
+from .traceroute import run_traceroute
 
 
 INTERNET_CHECK_MACHINE_TAG = "INTERNET-CHECK"
@@ -51,6 +52,7 @@ class MonitorService:
         self._last_cleanup = time.monotonic()
         self._last_run: dict[str, float] = {}
         self._last_internet_check: dict[str, float] = {}
+        self._last_traceroute: dict[str, float] = {}
 
     def stop(self) -> None:
         self._stop.set()
@@ -76,7 +78,11 @@ class MonitorService:
         if self.settings.internet_check_enabled:
             await self._run_internet_checks(now)
         
-        # 3. Processa fila de retry e limpeza
+        # 3. Verifica traceroute (se habilitado)
+        if self.settings.traceroute_enabled:
+            await self._run_traceroute_checks(now)
+        
+        # 4. Processa fila de retry e limpeza
         await self._retry_queue(now)
         await self._maybe_cleanup(now)
 
@@ -93,6 +99,14 @@ class MonitorService:
         interval = max(1, self.settings.internet_check_frequency_seconds)
         if now - last >= interval:
             self._last_internet_check[client_id] = now
+            return True
+        return False
+
+    def _is_traceroute_due(self, machine_id: str, now: float) -> bool:
+        last = self._last_traceroute.get(machine_id, 0)
+        interval = max(1, self.settings.traceroute_frequency_seconds)
+        if now - last >= interval:
+            self._last_traceroute[machine_id] = now
             return True
         return False
 
@@ -137,6 +151,58 @@ class MonitorService:
             self.diary.log(
                 "INTERNET_CHECK_ERRO",
                 "Falha ao executar verificações de internet",
+                {"error": str(exc)},
+            )
+
+    async def _run_traceroute_checks(self, now: float) -> None:
+        """Executa traceroute para máquinas ativas (exceto internet check)."""
+        try:
+            machines = await asyncio.to_thread(self.repository.list_machines, active_only=True)
+            
+            for machine in machines:
+                # Pula internet check machines
+                if machine.tag == INTERNET_CHECK_MACHINE_TAG:
+                    continue
+                
+                if not self._is_traceroute_due(machine.id, now):
+                    continue
+                
+                # Executa traceroute
+                result = await asyncio.to_thread(
+                    run_traceroute,
+                    ip=machine.ip,
+                    max_hops=self.settings.traceroute_max_hops,
+                    timeout_seconds=self.settings.traceroute_timeout_seconds,
+                )
+                
+                # Salva traceroute
+                try:
+                    await asyncio.to_thread(
+                        self.repository.save_traceroute,
+                        result,
+                        machine.client_id,
+                        machine.id,
+                    )
+                    self.diary.log(
+                        "TRACEROUTE_OK",
+                        f"Traceroute {machine.tag} ({machine.ip})",
+                        {
+                            "machine_id": machine.id,
+                            "total_hops": result.total_hops,
+                            "destination_reached": result.destination_reached,
+                        },
+                    )
+                except Exception as exc:
+                    self.diary.log(
+                        "TRACEROUTE_ERRO_ENVIO",
+                        f"Falha ao enviar traceroute para {machine.tag}",
+                        {"machine_id": machine.id, "error": str(exc)},
+                    )
+                    
+        except Exception as exc:
+            self.diary.log(
+                "TRACEROUTE_ERRO",
+                "Falha ao executar traceroutes",
                 {"error": str(exc)},
             )
 

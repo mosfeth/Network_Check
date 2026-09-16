@@ -27,6 +27,10 @@ class Settings:
     internet_check_enabled: bool
     internet_check_ip: str
     internet_check_frequency_seconds: int
+    traceroute_enabled: bool
+    traceroute_frequency_seconds: int
+    traceroute_max_hops: int
+    traceroute_timeout_seconds: float
 
     @property
     def db_dir(self) -> Path:
@@ -66,6 +70,10 @@ def load_settings(root: Path | None = None) -> Settings:
         internet_check_enabled=os.getenv("SUPADIAG_INTERNET_CHECK_ENABLED", "true").lower() == "true",
         internet_check_ip=os.getenv("SUPADIAG_INTERNET_CHECK_IP", "8.8.8.8").strip(),
         internet_check_frequency_seconds=int(os.getenv("SUPADIAG_INTERNET_CHECK_FREQUENCY", "300")),
+        traceroute_enabled=os.getenv("SUPADIAG_TRACEROUTE_ENABLED", "true").lower() == "true",
+        traceroute_frequency_seconds=int(os.getenv("SUPADIAG_TRACEROUTE_FREQUENCY", "3600")),
+        traceroute_max_hops=int(os.getenv("SUPADIAG_TRACEROUTE_MAX_HOPS", "30")),
+        traceroute_timeout_seconds=float(os.getenv("SUPADIAG_TRACEROUTE_TIMEOUT", "5.0")),
     )
 
 
@@ -88,4 +96,8 @@ def public_dict(settings: Settings) -> dict[str, Any]:
         "internet_check_enabled": settings.internet_check_enabled,
         "internet_check_ip": settings.internet_check_ip,
         "internet_check_frequency_seconds": settings.internet_check_frequency_seconds,
+        "traceroute_enabled": settings.traceroute_enabled,
+        "traceroute_frequency_seconds": settings.traceroute_frequency_seconds,
+        "traceroute_max_hops": settings.traceroute_max_hops,
+        "traceroute_timeout_seconds": settings.traceroute_timeout_seconds,
     }

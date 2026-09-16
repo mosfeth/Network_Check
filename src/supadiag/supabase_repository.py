@@ -4,7 +4,7 @@ import httpx
 from supabase import create_client, Client
 
 from .config import Settings
-from .models import Client, Machine, MeasurementSample
+from .models import Client, Machine, MeasurementSample, TracerouteHop, TracerouteResult
 
 
 class RepositoryError(RuntimeError):
@@ -198,3 +198,60 @@ class SupabaseRepository:
             self.client.table("measurements").delete().lt("measured_at", cutoff_iso)
         )
         return len(data) if data else 0
+
+    def save_traceroute(self, result: TracerouteResult, client_id: str, machine_id: str) -> str:
+        """Salva resultado de traceroute e retorna ID do traceroute."""
+        # Insere traceroute principal
+        traceroute_data = self._execute(
+            self.client.table("traceroutes").insert({
+                "client_id": client_id,
+                "machine_id": machine_id,
+                "target_ip": result.target_ip,
+                "max_hops": result.max_hops,
+                "total_hops": result.total_hops,
+                "destination_reached": result.destination_reached,
+            })
+        )
+        traceroute_id = traceroute_data[0]["id"] if traceroute_data else None
+        
+        if not traceroute_id or not result.hops:
+            return traceroute_id
+        
+        # Insere hops
+        hops_payload = []
+        for hop in result.hops:
+            hops_payload.append({
+                "traceroute_id": traceroute_id,
+                "hop_number": hop.hop_number,
+                "ip": hop.ip,
+                "hostname": hop.hostname,
+                "latency_ms": hop.latency_ms,
+                "packet_loss_percent": hop.packet_loss_percent,
+            })
+        
+        self._execute(self.client.table("traceroute_hops").insert(hops_payload))
+        return traceroute_id
+
+    def get_latest_traceroute(self, machine_id: str) -> dict | None:
+        """Retorna o traceroute mais recente com seus hops."""
+        data = self._execute(
+            self.client.table("traceroutes")
+            .select("*, traceroute_hops(*)")
+            .eq("machine_id", machine_id)
+            .order("measured_at", desc=True)
+            .limit(1)
+        )
+        if not data:
+            return None
+        return data[0]
+
+    def get_traceroute_history(self, machine_id: str, limit: int = 10) -> list[dict]:
+        """Retorna histórico de traceroutes para uma máquina."""
+        data = self._execute(
+            self.client.table("traceroutes")
+            .select("*")
+            .eq("machine_id", machine_id)
+            .order("measured_at", desc=True)
+            .limit(limit)
+        )
+        return data or []
