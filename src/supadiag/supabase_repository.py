@@ -336,7 +336,7 @@ class SupabaseRepository:
         cutoff = (datetime.now(timezone.utc) - timedelta(seconds=window_seconds)).isoformat()
         data = self._execute(
             self.client.table("measurements")
-            .select("latency_ms, jitter_ms, packet_loss_percent, measured_at")
+            .select("status, latency_ms, jitter_ms, packet_loss_percent, measured_at")
             .eq("machine_id", machine_id)
             .gte("measured_at", cutoff)
             .order("measured_at", desc=False)

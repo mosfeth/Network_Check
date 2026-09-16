@@ -493,10 +493,6 @@ def render_traceroute_badge(traceroute: dict | None) -> str:
 
 def render_traceroute_tab(repo, machine_id: str, machine_tag: str) -> None:
     """Renderiza aba de traceroute no detail view."""
-    if machine_tag == "INTERNET-CHECK":
-        st.info("ℹ️ Traceroute não disponível para INTERNET-CHECK. Esta máquina monitora latência via ping (8.8.8.8) e não executa traceroute.")
-        return
-    
     traceroute = repo.get_latest_traceroute(machine_id)
     
     if not traceroute:

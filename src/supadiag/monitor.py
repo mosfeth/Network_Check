@@ -54,6 +54,7 @@ class MonitorService:
         self._last_internet_check: dict[str, float] = {}
         self._last_traceroute: dict[str, float] = {}
         self._last_alert_check: dict[str, float] = {}
+        self._last_internet_status: dict[str, str] = {}
 
     def stop(self) -> None:
         self._stop.set()
@@ -160,19 +161,17 @@ class MonitorService:
             )
 
     async def _run_traceroute_checks(self, now: float) -> None:
-        """Executa traceroute para máquinas ativas (exceto internet check)."""
+        """Executa traceroute para máquinas ativas."""
         try:
             machines = await asyncio.to_thread(self.repository.list_machines, active_only=True)
             
             for machine in machines:
-                # Pula internet check machines
                 if machine.tag == INTERNET_CHECK_MACHINE_TAG:
+                    if not self._should_run_internet_traceroute(machine.id, now):
+                        continue
+                elif not self._is_traceroute_due(machine.id, now):
                     continue
                 
-                if not self._is_traceroute_due(machine.id, now):
-                    continue
-                
-                # Executa traceroute
                 result = await asyncio.to_thread(
                     run_traceroute,
                     ip=machine.ip,
@@ -180,7 +179,6 @@ class MonitorService:
                     timeout_seconds=self.settings.traceroute_timeout_seconds,
                 )
                 
-                # Salva traceroute
                 try:
                     await asyncio.to_thread(
                         self.repository.save_traceroute,
@@ -210,7 +208,31 @@ class MonitorService:
                 "Falha ao executar traceroutes",
                 {"error": str(exc)},
             )
-
+    
+    def _should_run_internet_traceroute(self, machine_id: str, now: float) -> bool:
+        """Verifica se deve rodar traceroute para INTERNET-CHECK (qualidade mudou de OK)."""
+        latest_status = self._last_internet_status.get(machine_id, "ok")
+        current_status = self._get_internet_status(machine_id)
+        
+        if latest_status == "ok" and current_status != "ok":
+            self._last_internet_status[machine_id] = current_status
+            if self._is_traceroute_due(machine_id, now):
+                return True
+            return False
+        
+        self._last_internet_status[machine_id] = current_status
+        return False
+    
+    def _get_internet_status(self, machine_id: str) -> str:
+        """Retorna o status da última medição do INTERNET-CHECK."""
+        try:
+            measurements = self.repository.get_measurements_window(machine_id, 300)
+            if measurements:
+                return measurements[0].get("status", "ok")
+        except Exception:
+            pass
+        return "ok"
+    
     async def _get_or_create_internet_machine(self, client_id: str) -> Machine | None:
         """Busca ou cria máquina de internet check para o cliente."""
         try:

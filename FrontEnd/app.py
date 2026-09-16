@@ -5,6 +5,8 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 from typing import Optional
 import pandas as pd
+import subprocess
+import os
 
 from config import settings
 from repository import FrontendRepository, RepositoryError
@@ -75,6 +77,34 @@ def on_machine_click(machine_id: str) -> None:
     st.session_state.selected_machine_id = machine_id
     st.session_state.view_mode = "detail"
     st.rerun()
+
+
+def run_traceroute_cli(machine_id: str) -> bool:
+    """Executa traceroute via CLI e retorna True se sucesso."""
+    project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    venv_python = os.path.join(project_dir, "venv", "Scripts", "python.exe")
+    if not os.path.exists(venv_python):
+        venv_python = "python"
+    try:
+        with st.spinner(f"🔍 Executando traceroute..."):
+            result = subprocess.run(
+                [venv_python, "-m", "supadiag", "traceroute", "--machine-id", machine_id],
+                capture_output=True,
+                text=True,
+                timeout=600,
+            )
+        if result.returncode == 0:
+            st.success("Traceroute executado com sucesso!")
+            return True
+        else:
+            st.error(f"Erro: {result.stderr}")
+            return False
+    except subprocess.TimeoutExpired:
+        st.error("Traceroute demorou muito. Tente novamente.")
+        return False
+    except FileNotFoundError:
+        st.error("Python não encontrado.")
+        return False
 
 
 def render_cards_view(repo: FrontendRepository, client_id: Optional[str]) -> None:
@@ -298,7 +328,14 @@ def render_detail_view(repo: FrontendRepository) -> None:
                     st.info("Nenhuma medição no período.")
         
         with tab_traceroute:
-            render_traceroute_tab(repo, machine_id, machine.tag)
+            traceroute_exists = repo.get_latest_traceroute(machine_id) is not None
+            if not traceroute_exists:
+                st.info(f"ℹ️ Traceroute para {machine.tag} ({machine.ip}). Será executado automaticamente quando a qualidade da conexão mudar de OK.")
+                if st.button("🔍 Executar Traceroute Agora", use_container_width=True):
+                    if run_traceroute_cli(machine_id):
+                        st.rerun()
+            else:
+                render_traceroute_tab(repo, machine_id, machine.tag)
         
         with tab_alerts:
             render_alert_tab(repo, machine_id, machine.tag)

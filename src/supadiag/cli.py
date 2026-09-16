@@ -69,7 +69,11 @@ def create_parser() -> argparse.ArgumentParser:
     # diary
     diary_parser = subparsers.add_parser("diary", help="Mostra o diário (memory.txt)")
     diary_parser.add_argument("--lines", type=int, default=50, help="Últimas N linhas")
-
+    
+    # traceroute
+    traceroute_parser = subparsers.add_parser("traceroute", help="Executa traceroute para uma máquina")
+    traceroute_parser.add_argument("--machine-id", required=True, help="ID da máquina")
+    
     # app (interactive)
     subparsers.add_parser("app", help="Inicia interface interativa (Textual)")
 
@@ -203,6 +207,38 @@ def cmd_diary(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_traceroute(args: argparse.Namespace) -> int:
+    settings, diary, repo, _ = load_app()
+    machine_id = args.machine_id
+    machine = repo.get_machine(machine_id)
+    if not machine:
+        print(f"Máquina não encontrada: {machine_id}")
+        return 1
+    
+    print(f"Executando traceroute para {machine.tag} ({machine.ip})...")
+    from .traceroute import run_traceroute
+    result = run_traceroute(machine.ip)
+    print(f"Total hops: {result.total_hops}")
+    print(f"Destino alcançado: {result.destination_reached}")
+    
+    try:
+        repo.save_traceroute(result, machine.client_id, machine.id)
+        diary.log(
+            "TRACEROUTE_OK",
+            f"Traceroute manual {machine.tag} ({machine.ip})",
+            {"machine_id": machine.id, "total_hops": result.total_hops},
+        )
+        print("Traceroute salvo com sucesso.")
+    except Exception as exc:
+        diary.log(
+            "TRACEROUTE_ERRO_ENVIO",
+            f"Falha ao salvar traceroute {machine.tag}",
+            {"error": str(exc)},
+        )
+        print(f"Erro ao salvar: {exc}")
+    return 0
+
+
 def cmd_app(args: argparse.Namespace) -> int:
     from .tui import SupaDiagApp
     settings, diary, repo, queue = load_app()
@@ -225,6 +261,7 @@ def main(argv: list[str] | None = None) -> int:
         "monitor": cmd_monitor,
         "service": cmd_service,
         "diary": cmd_diary,
+        "traceroute": cmd_traceroute,
         "app": cmd_app,
     }
     handler = command_map.get(args.command)
