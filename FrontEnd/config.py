@@ -16,8 +16,8 @@ class FrontendSettings:
     SUPABASE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
     
     # Configurações de exibição
-    PAGE_TITLE: str = "SupaDiag - Monitoramento de Rede"
-    PAGE_ICON: str = "📊"
+    PAGE_TITLE: str = "AI Network Analyzer"
+    PAGE_ICON: str = "🌐"
     LAYOUT: str = "wide"
     
     # Limites de consulta

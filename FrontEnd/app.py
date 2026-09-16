@@ -1,5 +1,5 @@
 # FrontEnd/app.py
-# Dashboard Principal - SupaDiag FrontEnd
+# Dashboard Principal - AI Network Analyzer
 
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
@@ -109,7 +109,7 @@ def run_traceroute_cli(machine_id: str) -> bool:
 
 def render_cards_view(repo: FrontendRepository, client_id: Optional[str]) -> None:
     """Renderiza a view de cards (lista de máquinas)."""
-    st.markdown('<h1 class="main-header">📊 SupaDiag - Visão Geral</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">AI Network Analyzer</h1>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">Clique em um card para ver métricas detalhadas da máquina</p>', unsafe_allow_html=True)
     
     # Tenta buscar máquinas com status

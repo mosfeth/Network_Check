@@ -336,7 +336,7 @@ def render_sidebar_filters(repo) -> dict:
             st.rerun()
         
         st.divider()
-        st.caption(f"SupaDiag FrontEnd v1.0")
+        st.caption("AI Network Analyzer v1.0")
         st.caption(f"Fonte: Supabase ({settings.SUPABASE_URL[:30]}...)")
     
     return {
