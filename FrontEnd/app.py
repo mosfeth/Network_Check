@@ -108,31 +108,93 @@ def run_traceroute_cli(machine_id: str) -> bool:
         return False
 
 
-def get_diary_events(limit: int = 30) -> list[dict]:
-    """Lê os últimos eventos do diary.log."""
-    from pathlib import Path
-    diary_path = Path(__file__).resolve().parents[2] / "data" / "diary.log"
-    if not diary_path.exists():
-        return []
+def get_sidebar_events(repo: FrontendRepository, limit: int = 30) -> list[dict]:
+    """Gera eventos da sidebar a partir de dados reais do Supabase."""
     events = []
-    with open(diary_path, encoding="utf-8", errors="replace") as handle:
-        for line in handle:
-            line = line.strip()
-            if not line:
-                continue
-            parts = line.split(" | ", 2)
-            if len(parts) < 2:
-                continue
-            timestamp = parts[0]
-            rest = parts[1]
-            message = parts[2] if len(parts) > 2 else ""
-            event_type = rest.split(" ", 1)[0] if " " in rest else rest
-            events.append({
-                "timestamp": timestamp,
-                "event": event_type,
-                "message": message,
-                "raw": line,
-            })
+    try:
+        machines_data = repo.get_machines_with_latest_status()
+    except Exception:
+        return []
+    
+    for m in machines_data:
+        machine = m["machine"]
+        client = m["client"]
+        latest = m["latest_measurement"]
+        
+        client_name = client.name if client else "?"
+        machine_tag = machine.tag if machine else machine.id[:8]
+        
+        # Verifica alertas ativos
+        try:
+            alert_rules = repo.list_alert_rules(machine.id)
+            for rule in alert_rules:
+                event = repo.get_active_alert_event(rule.get("id", ""))
+                if event:
+                    severity = event.get("severity", "warning")
+                    metric = event.get("metric", "")
+                    value = event.get("metric_value", 0)
+                    threshold = event.get("threshold_value", 0)
+                    started = event.get("started_at", "")[:19].replace("T", " ")
+                    
+                    if severity == "critical" or event.get("status") == "firing":
+                        icon = "🔴"
+                        event_type = "CRITICAL"
+                    elif severity == "warning":
+                        icon = "🟡"
+                        event_type = "WARNING"
+                    else:
+                        icon = "🟠"
+                        event_type = "ACK"
+                    
+                    events.append({
+                        "timestamp": started or "",
+                        "event": event_type,
+                        "message": f"{icon} {machine_tag}: {metric}={value} (>{threshold})",
+                        "severity": severity,
+                    })
+        except Exception:
+            pass
+        
+        # Status da máquina
+        if latest:
+            status = latest.get("status", "ok")
+            latency = latest.get("latency_ms")
+            loss = latest.get("packet_loss_percent")
+            measured = latest.get("measured_at", "")[:19].replace("T", " ")
+            
+            if status == "unreachable":
+                events.append({
+                    "timestamp": measured,
+                    "event": "UNREACHABLE",
+                    "message": f"🔴 {machine_tag}: INALCANÇÁVEL (loss: {loss}%)",
+                    "severity": "critical",
+                })
+            elif status == "partial":
+                events.append({
+                    "timestamp": measured,
+                    "event": "PARTIAL",
+                    "message": f"🟡 {machine_tag}: PARCIAL (lat: {latency}ms, loss: {loss}%)",
+                    "severity": "warning",
+                })
+            elif status == "error":
+                events.append({
+                    "timestamp": measured,
+                    "event": "ERROR",
+                    "message": f"🔴 {machine_tag}: ERRO",
+                    "severity": "critical",
+                })
+            else:
+                events.append({
+                    "timestamp": measured,
+                    "event": "OK",
+                    "message": f"🟢 {machine_tag}: OK ({latency}ms)",
+                    "severity": "ok",
+                })
+    
+    # Ordena por severidade (critical > warning > ack > ok) e tempo
+    severity_order = {"critical": 0, "warning": 1, "ack": 2, "ok": 3}
+    events.sort(key=lambda e: (severity_order.get(e.get("severity", "ok"), 3), e.get("timestamp", "")))
+    
     return events[-limit:]
 
 
@@ -434,18 +496,18 @@ def main() -> None:
         st.divider()
         st.markdown("### 📋 Últimos Eventos")
         try:
-            events = get_diary_events(30)
+            events = get_sidebar_events(repo, 30)
             for event in reversed(events):
                 timestamp = event.get("timestamp", "")[:19]
                 message = event.get("message", "")[:80]
-                event_type = event.get("event", "")
                 color = "#888"
-                if "ERRO" in event_type or "FALHA" in event_type:
+                severity = event.get("severity", "ok")
+                if severity == "critical":
                     color = "#dc3545"
-                elif "OK" in event_type:
+                elif severity == "warning":
+                    color = "#ffc107"
+                elif severity == "ok":
                     color = "#28a745"
-                elif "ALERT" in event_type:
-                    color = "#fd7e14"
                 st.markdown(f'<span style="color:{color};font-size:0.75rem;">{timestamp} | {message}</span>', unsafe_allow_html=True)
         except Exception:
             st.caption("Nenhum evento disponível")
