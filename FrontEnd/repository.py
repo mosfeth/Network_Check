@@ -216,6 +216,60 @@ class FrontendRepository:
             .limit(limit)
         )
         return data or []
+
+    def get_sparkline_data(self, machine_id: str, hours: int = 24) -> list[dict]:
+        """Retorna dados para sparkline (latência nos últimos N horas)."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+        data = self._execute(
+            self.client.table("measurements")
+            .select("latency_ms, measured_at")
+            .eq("machine_id", machine_id)
+            .gte("measured_at", cutoff)
+            .order("measured_at", desc=False)
+            .limit(200)  # Suficiente para sparkline
+        )
+        return data or []
+    
+    def get_alert_events(self, machine_id: str, status: str | None = None, limit: int = 50) -> list[dict]:
+        """Lista eventos de alerta para uma máquina."""
+        query = self.client.table("alert_events").select("*").order("started_at", desc=True)
+        if machine_id:
+            query = query.eq("machine_id", machine_id)
+        if status:
+            query = query.eq("status", status)
+        query = query.limit(limit)
+        return self._execute(query) or []
+    
+    def get_latest_alert_event(self, machine_id: str) -> dict | None:
+        """Retorna o evento de alerta mais recente para uma máquina."""
+        events = self.get_alert_events(machine_id)
+        if not events:
+            return None
+        return max(events, key=lambda x: x.get("started_at", ""))
+    
+    def list_alert_rules(self, machine_id: str | None = None) -> list[dict]:
+        """Lista regras de alerta para uma máquina."""
+        query = self.client.table("alert_rules").select("*").order("created_at", desc=True)
+        if machine_id:
+            query = query.eq("machine_id", machine_id)
+        query = query.eq("enabled", True)
+        return self._execute(query) or []
+    
+    def get_active_alert_event(self, rule_id: str) -> dict | None:
+        """Retorna evento ativo para uma regra."""
+        data = self._execute(
+            self.client.table("alert_events")
+            .select("*")
+            .eq("rule_id", rule_id)
+            .in_("status", ["firing", "acknowledged"])
+            .order("started_at", desc=True)
+            .limit(1)
+        )
+        return data[0] if data else None
+    
+    def update_alert_event(self, event_id: str, updates: dict) -> dict | None:
+        data = self._execute(self.client.table("alert_events").update(updates).eq("id", event_id))
+        return data[0] if data else None
     
     def get_machines_with_latest_status(self) -> list[dict[str, Any]]:
         """

@@ -19,6 +19,7 @@ def render_machine_card(
     client: Client,
     latest_measurement: Optional[dict],
     latest_traceroute: Optional[dict],
+    latest_alert_event: Optional[dict],
     on_click: callable
 ) -> None:
     """
@@ -29,6 +30,7 @@ def render_machine_card(
         client: Objeto Client
         latest_measurement: Última medição (dict) ou None
         latest_traceroute: Último traceroute (dict) ou None
+        latest_alert_event: Último evento de alerta (dict) ou None
         on_click: Callback ao clicar no card
     """
     # Determina cor do status
@@ -62,6 +64,13 @@ def render_machine_card(
     
     # Traceroute badge
     traceroute_badge = render_traceroute_badge(latest_traceroute)
+    
+    # Alert badge
+    alert_badge = render_alert_badge(
+        latest_alert_event.get("status") if latest_alert_event else None,
+        latest_alert_event.get("severity") if latest_alert_event else None,
+        latest_alert_event.get("metric") if latest_alert_event else None,
+    )
     
     # Card HTML customizado (sem texto "Clique para ver...")
     card_html = f"""
@@ -122,8 +131,9 @@ def render_machine_card(
                 <div style="font-size: 0.7rem; color: #888; text-transform: uppercase;">Última</div>
             </div>
         </div>
-        <div style="margin-top: 8px; text-align: center;">
+        <div style="margin-top: 8px; text-align: center; display: flex; gap: 8px; justify-content: center;">
             {traceroute_badge}
+            {alert_badge}
         </div>
     </div>
     """
@@ -512,3 +522,182 @@ def render_traceroute_tab(repo, machine_id: str, machine_tag: str) -> None:
             st.dataframe(df_hist, width="stretch", hide_index=True)
         else:
             st.info("Sem histórico de traceroutes.")
+
+
+def render_alert_tab(repo, machine_id: str, machine_tag: str) -> None:
+    """Renderiza aba de alertas no detail view."""
+    # Busca eventos de alerta
+    alert_events = repo.get_alert_events(machine_id)
+    
+    if not alert_events:
+        st.success("✅ Nenhum evento de alerta registrado para esta máquina.")
+        return
+    
+    # Status atual
+    firing_events = [e for e in alert_events if e.get("status") == "firing"]
+    acknowledged_events = [e for e in alert_events if e.get("status") == "acknowledged"]
+    resolved_events = [e for e in alert_events if e.get("status") == "resolved"]
+    
+    st.markdown("### 🔔 Status dos Alertas")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("🔴 Ativos", len(firing_events))
+    with col2:
+        st.metric("🟠 Reconhecidos", len(acknowledged_events))
+    with col3:
+        st.metric("✅ Resolvidos", len(resolved_events))
+    
+    st.divider()
+    
+    # Alertas ativos em destaque
+    if firing_events or acknowledged_events:
+        st.markdown("### ⚠️ Alertas Ativos")
+        for event in firing_events + acknowledged_events:
+            severity = event.get("severity", "")
+            metric = event.get("metric", "")
+            value = event.get("metric_value", 0)
+            threshold = event.get("threshold_value", 0)
+            started = event.get("started_at", "")
+            
+            if severity == "critical":
+                icon = "🔴"
+                color = "#dc3545"
+                label = "CRÍTICO"
+            elif severity == "warning":
+                icon = "🟡"
+                color = "#ffc107"
+                label = "AVISO"
+            elif severity == "firing":
+                icon = "🔴"
+                color = "#dc3545"
+                label = "FIRE"
+            else:
+                icon = "🟠"
+                color = "#fd7e14"
+                label = "ACK"
+            
+            st.markdown(f"""
+            <div style="
+                border-left: 4px solid {color};
+                padding: 10px 16px;
+                margin: 8px 0;
+                background: {'#fff5f5' if severity == 'critical' else '#fffcf0'};
+                border-radius: 4px;
+            ">
+                <div style="font-weight: 600; color: {color};">
+                    {icon} {label} — {machine_tag}
+                </div>
+                <div style="font-size: 0.9rem; color: #333; margin-top: 4px;">
+                    Métrica: <strong>{metric}</strong> = <strong>{value}</strong> (threshold: {threshold})
+                </div>
+                <div style="font-size: 0.8rem; color: #888; margin-top: 2px;">
+                    Início: {started[:19].replace('T', ' ') if started else '—'}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.divider()
+    
+    # Histórico de eventos
+    with st.expander("📜 Histórico Completo de Alertas"):
+        df_alerts = pd.DataFrame([
+            {
+                "Data/Hora": e.get("started_at", "")[:19].replace("T", " "),
+                "Severidade": e.get("severity", "").upper(),
+                "Métrica": e.get("metric", ""),
+                "Valor": e.get("metric_value", 0),
+                "Threshold": e.get("threshold_value", 0),
+                "Status": e.get("status", "").upper(),
+                "Regra ID": e.get("rule_id", "")[:8],
+            }
+            for e in alert_events
+        ])
+        if not df_alerts.empty:
+            # Colorir linhas por severidade
+            st.dataframe(df_alerts, width="stretch", hide_index=True)
+        else:
+            st.info("Sem histórico de alertas.")
+    
+    # Botão para reconhecer alertas ativos
+    if firing_events:
+        st.divider()
+        if st.button("🔔 Reconhecer todos os alertas ativos", use_container_width=True):
+            for event in firing_events:
+                repo.update_alert_event(event.get("id", ""), {
+                    "status": "acknowledged",
+                    "acknowledged_at": pd.to_datetime(event.get("started_at", "")).isoformat(),
+                    "acknowledged_by": "frontend_user",
+                })
+            st.rerun()
+
+
+def render_sparkline(sparkline_data: list[dict], color: str = "#1f77b4") -> None:
+    """
+    Renderiza mini gráfico sparkline (latência 24h).
+    
+    Args:
+        sparkline_data: Lista de dicts com latency_ms e measured_at
+        color: Cor da linha
+    """
+    if not sparkline_data:
+        return
+    
+    # Filtra dados válidos
+    valid_data = [d for d in sparkline_data if d.get("latency_ms") is not None]
+    if not valid_data:
+        return
+    
+    # Prepara dados
+    timestamps = [pd.to_datetime(d["measured_at"]).tz_convert("America/Sao_Paulo") for d in valid_data]
+    latencies = [d["latency_ms"] for d in valid_data]
+    
+    # Cria sparkline compacto
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=timestamps,
+        y=latencies,
+        mode="lines",
+        line=dict(color=color, width=1.5),
+        fill="tozeroy",
+        fillcolor=f"{color}20",  # 20% opacity
+        hovertemplate="%{y:.1f}ms<br>%{x}<extra></extra>",
+        showlegend=False,
+    ))
+    
+    fig.update_layout(
+        height=60,
+        margin=dict(l=0, r=0, t=0, b=0),
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+    )
+    
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+
+def render_alert_badge(
+    alert_status: str | None,
+    severity: str | None = None,
+    metric: str | None = None
+) -> str:
+    """Retorna HTML para badge de alerta no card."""
+    if not alert_status:
+        return '<span style="background:#28a745;color:white;padding:2px 10px;border-radius:10px;font-size:0.7rem;font-weight:600;">✓ Sem alertas</span>'
+    
+    if alert_status == "firing" or severity == "critical":
+        color = "#dc3545"
+        text = f"🔴 ALERTA ATIVO"
+    elif alert_status == "acknowledged":
+        color = "#fd7e14"
+        text = f"🟠 RECONHECIDO"
+    elif severity == "warning":
+        color = "#ffc107"
+        text = f"🟡 AVISO"
+    else:
+        color = "#6c757d"
+        text = f"⚪ {alert_status.upper()}"
+    
+    metric_label = f" ({metric})" if metric else ""
+    
+    return f'<span style="background:{color};color:white;padding:2px 10px;border-radius:10px;font-size:0.7rem;font-weight:600;">{text}{metric_label}</span>'

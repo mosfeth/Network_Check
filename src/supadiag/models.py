@@ -84,6 +84,40 @@ class TracerouteResult:
     hops: list[TracerouteHop]
 
 
+@dataclass(frozen=True)
+class AlertRule:
+    id: str
+    client_id: str
+    machine_id: str | None
+    name: str
+    metric: str
+    condition: str
+    threshold_warn: float
+    threshold_crit: float
+    evaluation_window_seconds: int
+    cooldown_seconds: int
+    enabled: bool
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
+class AlertEvent:
+    id: str
+    rule_id: str
+    client_id: str
+    machine_id: str
+    status: str
+    severity: str
+    metric_value: float
+    threshold_value: float
+    started_at: str
+    resolved_at: str | None
+    acknowledged_at: str | None
+    acknowledged_by: str | None
+    created_at: str
+
+
 def validate_ip(value: str) -> str:
     try:
         return str(ip_address(value.strip()))

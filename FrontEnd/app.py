@@ -14,6 +14,7 @@ from components import (
     render_sidebar_filters,
     render_status_badge,
     render_traceroute_tab,
+    render_alert_tab,
 )
 
 # Configuração da página
@@ -93,9 +94,10 @@ def render_cards_view(repo: FrontendRepository, client_id: Optional[str]) -> Non
             st.info("Nenhuma máquina encontrada com os filtros atuais.")
             return
         
-        # Busca traceroute para cada máquina
+        # Busca traceroute e alertas para cada máquina
         for m in machines_data:
             m["latest_traceroute"] = repo.get_latest_traceroute(m["machine"].id)
+            m["latest_alert_event"] = repo.get_latest_alert_event(m["machine"].id)
         
         # Métricas gerais
         total = len(machines_data)
@@ -104,12 +106,16 @@ def render_cards_view(repo: FrontendRepository, client_id: Optional[str]) -> Non
         critical_count = sum(1 for m in machines_data if m["latest_measurement"] and m["latest_measurement"].get("status") == "unreachable")
         no_data_count = sum(1 for m in machines_data if not m["latest_measurement"])
         
-        col1, col2, col3, col4, col5 = st.columns(5)
+        # Alertas ativos
+        alert_active_count = sum(1 for m in machines_data if m["latest_alert_event"] and m["latest_alert_event"].get("status") in ["firing", "acknowledged"])
+        
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
         col1.metric("Total", total)
         col2.metric("🟢 OK", ok_count)
         col3.metric("🟡 Parcial", warning_count)
         col4.metric("🔴 Crítico", critical_count)
         col5.metric("⚪ Sem dados", no_data_count)
+        col6.metric("🔔 Alertas", alert_active_count)
         
         st.divider()
         
@@ -127,6 +133,7 @@ def render_cards_view(repo: FrontendRepository, client_id: Optional[str]) -> Non
                             client=m["client"],
                             latest_measurement=m["latest_measurement"],
                             latest_traceroute=m["latest_traceroute"],
+                            latest_alert_event=m["latest_alert_event"],
                             on_click=on_machine_click
                         )
     
@@ -220,8 +227,8 @@ def render_detail_view(repo: FrontendRepository) -> None:
         
         st.divider()
         
-        # Abas: Métricas | Traceroute
-        tab_metrics, tab_traceroute = st.tabs(["📊 Métricas", "🔍 Traceroute"])
+        # Abas: Métricas | Traceroute | Alertas
+        tab_metrics, tab_traceroute, tab_alerts = st.tabs(["📊 Métricas", "🔍 Traceroute", "🔔 Alertas"])
         
         with tab_metrics:
             # Seletor de período histórico
@@ -292,6 +299,9 @@ def render_detail_view(repo: FrontendRepository) -> None:
         
         with tab_traceroute:
             render_traceroute_tab(repo, machine_id, machine.tag)
+        
+        with tab_alerts:
+            render_alert_tab(repo, machine_id, machine.tag)
     
     except RepositoryError as e:
         st.error(f"Erro ao conectar ao Supabase: {e}")
@@ -319,6 +329,39 @@ def main() -> None:
             st.success(f"✅ {st.session_state.health_msg}")
         else:
             st.error(f"❌ {st.session_state.health_msg}")
+        
+        # Alertas ativos no sidebar
+        st.divider()
+        st.markdown("### 🔔 Alertas Ativos")
+        
+        try:
+            active_alerts = repo.list_alert_rules()
+            if active_alerts:
+                for rule in active_alerts[:5]:
+                    machine_tag = rule.get("machine_tag", "")
+                    machine_id = rule.get("machine_id", "")
+                    if machine_id:
+                        machine = repo.get_machine(machine_id)
+                        machine_tag = machine.tag if machine else machine_id[:8]
+                    
+                    event = repo.get_active_alert_event(rule.get("id", ""))
+                    if event:
+                        severity = event.get("severity", "warning")
+                        metric = event.get("metric", "")
+                        value = event.get("metric_value", 0)
+                        
+                        if severity == "critical" or event.get("status") == "firing":
+                            icon = "🔴"
+                        elif severity == "warning":
+                            icon = "🟡"
+                        else:
+                            icon = "🟠"
+                        
+                        st.markdown(f"{icon} **{machine_tag}** ({metric}: {value})")
+            else:
+                st.markdown("<span style='color: #28a745; font-size: 0.85rem;'>✓ Nenhum alerta ativo</span>", unsafe_allow_html=True)
+        except Exception:
+            st.caption("Nenhum dado de alerta disponível")
     
     # Auto-refresh não-bloqueante (a cada 30 segundos)
     if filters["auto_refresh"]:

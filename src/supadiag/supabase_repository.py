@@ -4,7 +4,7 @@ import httpx
 from supabase import create_client, Client
 
 from .config import Settings
-from .models import Client, Machine, MeasurementSample, TracerouteHop, TracerouteResult
+from .models import Client, Machine, MeasurementSample, TracerouteHop, TracerouteResult, AlertRule, AlertEvent
 
 
 class RepositoryError(RuntimeError):
@@ -253,5 +253,79 @@ class SupabaseRepository:
             .eq("machine_id", machine_id)
             .order("measured_at", desc=True)
             .limit(limit)
+        )
+        return data or []
+
+    # ========== ALERT METHODS ==========
+
+    def create_alert_rule(self, rule_data: dict) -> str:
+        """Cria uma regra de alerta e retorna o ID."""
+        data = self._execute(self.client.table("alert_rules").insert(rule_data))
+        return data[0]["id"] if data else None
+
+    def list_alert_rules(self, client_id: str | None = None, machine_id: str | None = None, enabled_only: bool = True) -> list[dict]:
+        """Lista regras de alerta."""
+        query = self.client.table("alert_rules").select("*").order("created_at", desc=True)
+        if client_id:
+            query = query.eq("client_id", client_id)
+        if machine_id:
+            query = query.eq("machine_id", machine_id)
+        if enabled_only:
+            query = query.eq("enabled", True)
+        return self._execute(query) or []
+
+    def get_alert_rule(self, rule_id: str) -> dict | None:
+        data = self._execute(self.client.table("alert_rules").select("*").eq("id", rule_id).limit(1))
+        return data[0] if data else None
+
+    def update_alert_rule(self, rule_id: str, updates: dict) -> dict | None:
+        updates["updated_at"] = "now()"
+        data = self._execute(self.client.table("alert_rules").update(updates).eq("id", rule_id))
+        return data[0] if data else None
+
+    def delete_alert_rule(self, rule_id: str) -> None:
+        self._execute(self.client.table("alert_rules").delete().eq("id", rule_id))
+
+    def create_alert_event(self, event_data: dict) -> str:
+        """Cria evento de alerta e retorna o ID."""
+        data = self._execute(self.client.table("alert_events").insert(event_data))
+        return data[0]["id"] if data else None
+
+    def get_active_alert_event(self, rule_id: str) -> dict | None:
+        """Retorna evento ativo (firing/acknowledged) para uma regra."""
+        data = self._execute(
+            self.client.table("alert_events")
+            .select("*")
+            .eq("rule_id", rule_id)
+            .in_("status", ["firing", "acknowledged"])
+            .order("started_at", desc=True)
+            .limit(1)
+        )
+        return data[0] if data else None
+
+    def update_alert_event(self, event_id: str, updates: dict) -> dict | None:
+        data = self._execute(self.client.table("alert_events").update(updates).eq("id", event_id))
+        return data[0] if data else None
+
+    def list_alert_events(self, machine_id: str | None = None, status: str | None = None, limit: int = 50) -> list[dict]:
+        """Lista eventos de alerta."""
+        query = self.client.table("alert_events").select("*").order("started_at", desc=True)
+        if machine_id:
+            query = query.eq("machine_id", machine_id)
+        if status:
+            query = query.eq("status", status)
+        query = query.limit(limit)
+        return self._execute(query) or []
+
+    def get_measurements_window(self, machine_id: str, window_seconds: int) -> list[dict]:
+        """Retorna medições dos últimos N segundos para uma máquina."""
+        from datetime import datetime, timedelta, timezone
+        cutoff = (datetime.now(timezone.utc) - timedelta(seconds=window_seconds)).isoformat()
+        data = self._execute(
+            self.client.table("measurements")
+            .select("latency_ms, jitter_ms, packet_loss_percent, measured_at")
+            .eq("machine_id", machine_id)
+            .gte("measured_at", cutoff)
+            .order("measured_at", desc=False)
         )
         return data or []

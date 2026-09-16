@@ -31,6 +31,16 @@ class Settings:
     traceroute_frequency_seconds: int
     traceroute_max_hops: int
     traceroute_timeout_seconds: float
+    alert_enabled: bool
+    alert_latency_warn: int
+    alert_latency_crit: int
+    alert_loss_warn: float
+    alert_loss_crit: float
+    alert_jitter_warn: int
+    alert_jitter_crit: int
+    alert_webhook_url: str
+    alert_evaluation_window: int
+    alert_cooldown: int
 
     @property
     def db_dir(self) -> Path:
@@ -74,6 +84,16 @@ def load_settings(root: Path | None = None) -> Settings:
         traceroute_frequency_seconds=int(os.getenv("SUPADIAG_TRACEROUTE_FREQUENCY", "3600")),
         traceroute_max_hops=int(os.getenv("SUPADIAG_TRACEROUTE_MAX_HOPS", "30")),
         traceroute_timeout_seconds=float(os.getenv("SUPADIAG_TRACEROUTE_TIMEOUT", "5.0")),
+        alert_enabled=os.getenv("SUPADIAG_ALERT_ENABLED", "true").lower() == "true",
+        alert_latency_warn=int(os.getenv("SUPADIAG_ALERT_LATENCY_WARN", "80")),
+        alert_latency_crit=int(os.getenv("SUPADIAG_ALERT_LATENCY_CRIT", "150")),
+        alert_loss_warn=float(os.getenv("SUPADIAG_ALERT_LOSS_WARN", "2")),
+        alert_loss_crit=float(os.getenv("SUPADIAG_ALERT_LOSS_CRIT", "5")),
+        alert_jitter_warn=int(os.getenv("SUPADIAG_ALERT_JITTER_WARN", "30")),
+        alert_jitter_crit=int(os.getenv("SUPADIAG_ALERT_JITTER_CRIT", "50")),
+        alert_webhook_url=os.getenv("SUPADIAG_ALERT_WEBHOOK_URL", "").strip(),
+        alert_evaluation_window=int(os.getenv("SUPADIAG_ALERT_EVALUATION_WINDOW", "300")),
+        alert_cooldown=int(os.getenv("SUPADIAG_ALERT_COOLDOWN", "900")),
     )
 
 
@@ -100,4 +120,14 @@ def public_dict(settings: Settings) -> dict[str, Any]:
         "traceroute_frequency_seconds": settings.traceroute_frequency_seconds,
         "traceroute_max_hops": settings.traceroute_max_hops,
         "traceroute_timeout_seconds": settings.traceroute_timeout_seconds,
+        "alert_enabled": settings.alert_enabled,
+        "alert_latency_warn": settings.alert_latency_warn,
+        "alert_latency_crit": settings.alert_latency_crit,
+        "alert_loss_warn": settings.alert_loss_warn,
+        "alert_loss_crit": settings.alert_loss_crit,
+        "alert_jitter_warn": settings.alert_jitter_warn,
+        "alert_jitter_crit": settings.alert_jitter_crit,
+        "alert_webhook_url": settings.alert_webhook_url,
+        "alert_evaluation_window": settings.alert_evaluation_window,
+        "alert_cooldown": settings.alert_cooldown,
     }

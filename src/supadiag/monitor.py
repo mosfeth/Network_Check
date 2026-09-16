@@ -11,7 +11,7 @@ from typing import Callable, Optional
 from .config import Settings
 from .diary import Diary
 from .icmp import measure_host
-from .models import Machine, MeasurementSample, TracerouteResult
+from .models import Machine, MeasurementSample, TracerouteResult, AlertRule, AlertEvent
 from .queue import LocalQueue
 from .supabase_repository import SupabaseRepository
 from .traceroute import run_traceroute
@@ -53,6 +53,7 @@ class MonitorService:
         self._last_run: dict[str, float] = {}
         self._last_internet_check: dict[str, float] = {}
         self._last_traceroute: dict[str, float] = {}
+        self._last_alert_check: dict[str, float] = {}
 
     def stop(self) -> None:
         self._stop.set()
@@ -82,7 +83,11 @@ class MonitorService:
         if self.settings.traceroute_enabled:
             await self._run_traceroute_checks(now)
         
-        # 4. Processa fila de retry e limpeza
+        # 4. Verifica alertas (se habilitado)
+        if self.settings.alert_enabled:
+            await self._run_alert_checks(now)
+        
+        # 5. Processa fila de retry e limpeza
         await self._retry_queue(now)
         await self._maybe_cleanup(now)
 
@@ -335,3 +340,176 @@ class MonitorService:
             except Exception as exc:
                 self.diary.log("ERRO_LIMPEZA", "Falha ao limpar medições antigas", {"error": str(exc)})
             self._last_cleanup = now
+
+    def _is_alert_due(self, machine_id: str, now: float) -> bool:
+        """Verifica se é hora de avaliar alertas para esta máquina."""
+        last = self._last_alert_check.get(machine_id, 0)
+        interval = max(1, self.settings.alert_evaluation_window)
+        if now - last >= interval:
+            self._last_alert_check[machine_id] = now
+            return True
+        return False
+
+    async def _run_alert_checks(self, now: float) -> None:
+        """Avalia regras de alerta para máquinas ativas."""
+        if not self.settings.alert_enabled:
+            return
+        
+        try:
+            # Busca regras de alerta ativas
+            rules = await asyncio.to_thread(
+                self.repository.list_alert_rules, enabled_only=True
+            )
+            
+            if not rules:
+                return
+            
+            # Agrupa regras por machine_id
+            rules_by_machine: dict[str, list[dict]] = {}
+            for rule in rules:
+                mid = rule.get("machine_id")
+                if mid:
+                    rules_by_machine.setdefault(mid, []).append(rule)
+            
+            # Avalia cada máquina que tem regras
+            for machine_id, machine_rules in rules_by_machine.items():
+                if not self._is_alert_due(machine_id, now):
+                    continue
+                
+                await self._evaluate_machine_alerts(machine_id, machine_rules)
+                
+        except Exception as exc:
+            self.diary.log(
+                "ALERT_ERRO",
+                "Falha ao avaliar alertas",
+                {"error": str(exc)},
+            )
+
+    async def _evaluate_machine_alerts(self, machine_id: str, rules: list[dict]) -> None:
+        """Avalia todas as regras para uma máquina específica."""
+        try:
+            # Busca medições na janela de avaliação
+            window = self.settings.alert_evaluation_window
+            measurements = await asyncio.to_thread(
+                self.repository.get_measurements_window, machine_id, window
+            )
+            
+            if not measurements:
+                return
+            
+            for rule in rules:
+                await self._evaluate_rule(machine_id, rule, measurements)
+                
+        except Exception as exc:
+            self.diary.log(
+                "ALERT_ERRO_AVALIACAO",
+                f"Falha ao avaliar alertas para máquina {machine_id}",
+                {"error": str(exc)},
+            )
+
+    async def _evaluate_rule(self, machine_id: str, rule: dict, measurements: list[dict]) -> None:
+        """Avalia uma regra específica contra as medições."""
+        metric = rule["metric"]
+        condition = rule["condition"]
+        threshold_warn = rule["threshold_warn"]
+        threshold_crit = rule["threshold_crit"]
+        cooldown = rule.get("cooldown_seconds", 900)
+        
+        # Extrai valores da métrica
+        values = [m.get(metric + "_ms") if metric in ["latency", "jitter"] else m.get("packet_loss_percent") 
+                  for m in measurements if m.get(metric + "_ms") is not None or metric == "loss"]
+        
+        if not values:
+            return
+        
+        # Calcula valor agregado (média para latency/jitter, max para loss)
+        if metric == "loss":
+            current_value = max(values) if values else 0
+        else:
+            current_value = sum(values) / len(values) if values else 0
+        
+        # Verifica se excede threshold
+        severity = None
+        threshold_value = None
+        
+        if self._check_condition(current_value, condition, threshold_crit):
+            severity = "critical"
+            threshold_value = threshold_crit
+        elif self._check_condition(current_value, condition, threshold_warn):
+            severity = "warning"
+            threshold_value = threshold_warn
+        else:
+            # Valor normal - verifica se há alerta ativo para resolver
+            await self._resolve_alert_if_active(rule["id"])
+            return
+        
+        # Verifica cooldown
+        active_event = await asyncio.to_thread(self.repository.get_active_alert_event, rule["id"])
+        if active_event:
+            # Alerta já ativo - verifica se mudou severidade
+            if active_event["severity"] != severity:
+                await asyncio.to_thread(
+                    self.repository.update_alert_event,
+                    active_event["id"],
+                    {"severity": severity, "metric_value": current_value, "threshold_value": threshold_value}
+                )
+                self.diary.log("ALERT_SEVERIDADE_ALTERADA", f"Severidade alterada para {severity}", {
+                    "rule_id": rule["id"], "machine_id": machine_id, "severity": severity
+                })
+            return
+        
+        # Verifica cooldown desde último alerta resolvido
+        recent_events = await asyncio.to_thread(
+            self.repository.list_alert_events, machine_id=machine_id, status="resolved", limit=1
+        )
+        if recent_events:
+            from datetime import datetime, timezone
+            last_resolved = datetime.fromisoformat(recent_events[0]["resolved_at"].replace("Z", "+00:00"))
+            time_since_resolved = (datetime.now(timezone.utc) - last_resolved).total_seconds()
+            if time_since_resolved < cooldown:
+                return  # Ainda em cooldown
+        
+        # Cria novo evento de alerta
+        event_data = {
+            "rule_id": rule["id"],
+            "client_id": rule["client_id"],
+            "machine_id": machine_id,
+            "status": "firing",
+            "severity": severity,
+            "metric_value": current_value,
+            "threshold_value": threshold_value,
+        }
+        
+        try:
+            event_id = await asyncio.to_thread(self.repository.create_alert_event, event_data)
+            self.diary.log("ALERT_DISPARADO", f"Alerta {severity} disparado", {
+                "rule_id": rule["id"], "machine_id": machine_id, 
+                "metric": metric, "value": current_value, "threshold": threshold_value
+            })
+        except Exception as exc:
+            self.diary.log("ALERT_ERRO_CRIACAO", "Falha ao criar evento de alerta", {"error": str(exc)})
+
+    def _check_condition(self, value: float, condition: str, threshold: float) -> bool:
+        """Verifica se valor atende à condição."""
+        if condition == "gt":
+            return value > threshold
+        elif condition == "gte":
+            return value >= threshold
+        elif condition == "lt":
+            return value < threshold
+        elif condition == "lte":
+            return value <= threshold
+        return False
+
+    async def _resolve_alert_if_active(self, rule_id: str) -> None:
+        """Resolve alerta ativo se valor voltou ao normal."""
+        active_event = await asyncio.to_thread(self.repository.get_active_alert_event, rule_id)
+        if active_event:
+            await asyncio.to_thread(
+                self.repository.update_alert_event,
+                active_event["id"],
+                {"status": "resolved", "resolved_at": datetime.now(timezone.utc).isoformat()}
+            )
+            self.diary.log("ALERT_RESOLVIDO", "Alerta resolvido automaticamente", {
+                "rule_id": rule_id, "event_id": active_event["id"]
+            })
