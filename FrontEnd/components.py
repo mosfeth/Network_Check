@@ -62,6 +62,18 @@ def render_machine_card(
         latency = None
         loss = None
     
+    # Converte timestamp para horário de São Paulo
+    last_measured_at = "—"
+    if latest_measurement and latest_measurement.get("measured_at"):
+        try:
+            dt_utc = pd.to_datetime(latest_measurement["measured_at"])
+            if dt_utc.tz is not None:
+                last_measured_at = dt_utc.tz_convert("America/Sao_Paulo").strftime("%Y-%m-%d %H:%M")
+            else:
+                last_measured_at = dt_utc.strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            last_measured_at = latest_measurement.get("measured_at", "")[:16].replace('T', ' ')
+    
     # Traceroute badge
     traceroute_badge = render_traceroute_badge(latest_traceroute)
     
@@ -126,7 +138,7 @@ def render_machine_card(
             </div>
             <div style="flex: 1; text-align: center;">
                 <div style="font-size: 1.3rem; font-weight: 600; color: #1f77b4;">
-                    {latest_measurement.get("measured_at", "")[:16].replace('T', ' ') if latest_measurement else '—'}
+                    {last_measured_at}
                 </div>
                 <div style="font-size: 0.7rem; color: #888; text-transform: uppercase;">Última</div>
             </div>
