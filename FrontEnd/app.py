@@ -4,6 +4,7 @@
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 from typing import Optional
+import pandas as pd
 
 from config import settings
 from repository import FrontendRepository, RepositoryError
@@ -12,6 +13,7 @@ from components import (
     render_metrics_charts,
     render_sidebar_filters,
     render_status_badge,
+    render_traceroute_tab,
 )
 
 # Configuração da página
@@ -97,9 +99,9 @@ def render_cards_view(repo: FrontendRepository, client_id: Optional[str]) -> Non
         
         # Métricas gerais
         total = len(machines_data)
-        ok_count = sum(1 for m in machines_data if m["latest_measurement"] and m["latest_measurement"].status == "ok")
-        warning_count = sum(1 for m in machines_data if m["latest_measurement"] and m["latest_measurement"].status == "partial")
-        critical_count = sum(1 for m in machines_data if m["latest_measurement"] and m["latest_measurement"].status == "unreachable")
+        ok_count = sum(1 for m in machines_data if m["latest_measurement"] and m["latest_measurement"].get("status") == "ok")
+        warning_count = sum(1 for m in machines_data if m["latest_measurement"] and m["latest_measurement"].get("status") == "partial")
+        critical_count = sum(1 for m in machines_data if m["latest_measurement"] and m["latest_measurement"].get("status") == "unreachable")
         no_data_count = sum(1 for m in machines_data if not m["latest_measurement"])
         
         col1, col2, col3, col4, col5 = st.columns(5)
@@ -171,37 +173,40 @@ def render_detail_view(repo: FrontendRepository) -> None:
         if latest:
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                latency_color = "#28a745" if latest.latency_ms and latest.latency_ms < 50 else "#ffc107" if latest.latency_ms and latest.latency_ms < 150 else "#dc3545" if latest.latency_ms else "#6c757d"
+                latency_ms = latest.get("latency_ms")
+                latency_color = "#28a745" if latency_ms and latency_ms < 50 else "#ffc107" if latency_ms and latency_ms < 150 else "#dc3545" if latency_ms else "#6c757d"
                 st.markdown(f"""
                 <div class="metric-card">
                     <div style="font-size: 0.8rem; color: #666; text-transform: uppercase;">Latência Atual</div>
                     <div style="font-size: 2rem; font-weight: 700; color: {latency_color};">
-                        {f'{latest.latency_ms:.1f} ms' if latest.latency_ms else '—'}
+                        {f'{latency_ms:.1f} ms' if latency_ms else '—'}
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
             with col2:
-                loss_color = "#28a745" if latest.packet_loss_percent == 0 else "#ffc107" if latest.packet_loss_percent < 5 else "#dc3545"
+                loss_pct = latest.get("packet_loss_percent", 0)
+                loss_color = "#28a745" if loss_pct == 0 else "#ffc107" if loss_pct < 5 else "#dc3545"
                 st.markdown(f"""
                 <div class="metric-card">
                     <div style="font-size: 0.8rem; color: #666; text-transform: uppercase;">Perda de Pacotes</div>
                     <div style="font-size: 2rem; font-weight: 700; color: {loss_color};">
-                        {latest.packet_loss_percent:.1f}%
+                        {loss_pct:.1f}%
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
             with col3:
-                jitter_color = "#28a745" if latest.jitter_ms and latest.jitter_ms < 10 else "#ffc107" if latest.jitter_ms and latest.jitter_ms < 30 else "#dc3545" if latest.jitter_ms else "#6c757d"
+                jitter_ms = latest.get("jitter_ms")
+                jitter_color = "#28a745" if jitter_ms and jitter_ms < 10 else "#ffc107" if jitter_ms and jitter_ms < 30 else "#dc3545" if jitter_ms else "#6c757d"
                 st.markdown(f"""
                 <div class="metric-card">
                     <div style="font-size: 0.8rem; color: #666; text-transform: uppercase;">Jitter</div>
                     <div style="font-size: 2rem; font-weight: 700; color: {jitter_color};">
-                        {f'{latest.jitter_ms:.1f} ms' if latest.jitter_ms else '—'}
+                        {f'{jitter_ms:.1f} ms' if jitter_ms else '—'}
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
             with col4:
-                status_html = render_status_badge(latest.status)
+                status_html = render_status_badge(latest.get("status", ""))
                 st.markdown(f"""
                 <div class="metric-card">
                     <div style="font-size: 0.8rem; color: #666; text-transform: uppercase;">Status</div>
@@ -209,7 +214,7 @@ def render_detail_view(repo: FrontendRepository) -> None:
                 </div>
                 """, unsafe_allow_html=True)
             
-            st.caption(f"Última medição: {latest.measured_at[:19].replace('T', ' ')} UTC")
+            st.caption(f"Última medição: {pd.to_datetime(latest.get('measured_at', '')).tz_convert('America/Sao_Paulo').strftime('%Y-%m-%d %H:%M:%S') if latest.get('measured_at') else '—'}")
         else:
             st.warning("Nenhuma medição registrada para esta máquina.")
         
@@ -271,13 +276,15 @@ def render_detail_view(repo: FrontendRepository) -> None:
                 if measurements:
                     df_data = []
                     for m in reversed(measurements[-50:]):
+                        dt = pd.to_datetime(m.get("measured_at", ""))
+                        hora_sp = dt.tz_convert("America/Sao_Paulo").strftime("%Y-%m-%d %H:%M:%S") if dt.tz is not None else m.get("measured_at", "")[:19].replace('T', ' ')
                         df_data.append({
-                            "Hora": m.measured_at[:19].replace('T', ' '),
-                            "Latência (ms)": f"{m.latency_ms:.1f}" if m.latency_ms else "—",
-                            "Jitter (ms)": f"{m.jitter_ms:.1f}" if m.jitter_ms else "—",
-                            "Perda (%)": f"{m.packet_loss_percent:.1f}",
-                            "Status": m.status,
-                            "Enviados/Recebidos": f"{m.packets_received}/{m.packets_sent}",
+                            "Hora (SP)": hora_sp,
+                            "Latência (ms)": f"{m.get('latency_ms'):.1f}" if m.get('latency_ms') else "—",
+                            "Jitter (ms)": f"{m.get('jitter_ms'):.1f}" if m.get('jitter_ms') else "—",
+                            "Perda (%)": f"{m.get('packet_loss_percent', 0):.1f}",
+                            "Status": m.get("status", ""),
+                            "Enviados/Recebidos": f"{m.get('packets_received', 0)}/{m.get('packets_sent', 0)}",
                         })
                     st.dataframe(df_data, width="stretch", hide_index=True)
                 else:

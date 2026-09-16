@@ -17,7 +17,7 @@ from config import settings
 def render_machine_card(
     machine: Machine,
     client: Client,
-    latest_measurement: Optional[Measurement],
+    latest_measurement: Optional[dict],
     latest_traceroute: Optional[dict],
     on_click: callable
 ) -> None:
@@ -27,15 +27,15 @@ def render_machine_card(
     Args:
         machine: Objeto Machine
         client: Objeto Client
-        latest_measurement: Última medição ou None
-        latest_traceroute: Último traceroute ou None
+        latest_measurement: Última medição (dict) ou None
+        latest_traceroute: Último traceroute (dict) ou None
         on_click: Callback ao clicar no card
     """
     # Determina cor do status
     if latest_measurement:
-        status = latest_measurement.status
-        latency = latest_measurement.latency_ms
-        loss = latest_measurement.packet_loss_percent
+        status = latest_measurement.get("status", "")
+        latency = latest_measurement.get("latency_ms")
+        loss = latest_measurement.get("packet_loss_percent")
         
         if status == "ok":
             status_color = "#28a745"  # verde
@@ -117,7 +117,7 @@ def render_machine_card(
             </div>
             <div style="flex: 1; text-align: center;">
                 <div style="font-size: 1.3rem; font-weight: 600; color: #1f77b4;">
-                    {latest_measurement.measured_at[:16].replace('T', ' ') if latest_measurement else '—'}
+                    {latest_measurement.get("measured_at", "")[:16].replace('T', ' ') if latest_measurement else '—'}
                 </div>
                 <div style="font-size: 0.7rem; color: #888; text-transform: uppercase;">Última</div>
             </div>
@@ -137,26 +137,26 @@ def render_machine_card(
             on_click(machine.id)
 
 
-def render_metrics_charts(measurements: list[Measurement], machine_tag: str) -> None:
+def render_metrics_charts(measurements: list[dict], machine_tag: str) -> None:
     """
     Renderiza gráficos de métricas (latência, jitter, perda) usando Plotly.
     
     Args:
-        measurements: Lista de medições ordenadas cronologicamente
+        measurements: Lista de medições (dict) ordenadas cronologicamente
         machine_tag: Tag da máquina para título
     """
     if not measurements:
         st.info("Nenhuma medição disponível para o período selecionado.")
         return
     
-    # Prepara dados para DataFrame
+    # Prepara dados para DataFrame com conversão para horário de São Paulo
     df = pd.DataFrame([
         {
-            "timestamp": pd.to_datetime(m.measured_at),
-            "latency_ms": m.latency_ms,
-            "jitter_ms": m.jitter_ms,
-            "packet_loss_percent": m.packet_loss_percent,
-            "status": m.status,
+            "timestamp": pd.to_datetime(m.get("measured_at", "")).tz_convert("America/Sao_Paulo") if pd.to_datetime(m.get("measured_at", "")).tz is not None else pd.to_datetime(m.get("measured_at", "")),
+            "latency_ms": m.get("latency_ms"),
+            "jitter_ms": m.get("jitter_ms"),
+            "packet_loss_percent": m.get("packet_loss_percent", 0),
+            "status": m.get("status", ""),
         }
         for m in measurements
     ])
@@ -318,12 +318,6 @@ def render_sidebar_filters(repo) -> dict:
         st.caption(f"Fonte: Supabase ({settings.SUPABASE_URL[:30]}...)")
     
     return {
-        "client_id": selected_client_id,
-        "auto_refresh": auto_refresh,
-    }
-
-
-return {
         "client_id": selected_client_id,
         "auto_refresh": auto_refresh,
     }
