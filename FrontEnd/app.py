@@ -91,6 +91,10 @@ def render_cards_view(repo: FrontendRepository, client_id: Optional[str]) -> Non
             st.info("Nenhuma máquina encontrada com os filtros atuais.")
             return
         
+        # Busca traceroute para cada máquina
+        for m in machines_data:
+            m["latest_traceroute"] = repo.get_latest_traceroute(m["machine"].id)
+        
         # Métricas gerais
         total = len(machines_data)
         ok_count = sum(1 for m in machines_data if m["latest_measurement"] and m["latest_measurement"].status == "ok")
@@ -120,6 +124,7 @@ def render_cards_view(repo: FrontendRepository, client_id: Optional[str]) -> Non
                             machine=m["machine"],
                             client=m["client"],
                             latest_measurement=m["latest_measurement"],
+                            latest_traceroute=m["latest_traceroute"],
                             on_click=on_machine_click
                         )
     
@@ -210,69 +215,76 @@ def render_detail_view(repo: FrontendRepository) -> None:
         
         st.divider()
         
-        # Seletor de período histórico
-        st.subheader("📊 Histórico de Métricas")
+        # Abas: Métricas | Traceroute
+        tab_metrics, tab_traceroute = st.tabs(["📊 Métricas", "🔍 Traceroute"])
         
-        # Presets de período
-        period_presets = {
-            "Últimas 24h": 24,
-            "Últimos 7 dias": 168,
-            "Últimos 30 dias": 720,
-            "Últimos 90 dias": 2160,
-            "Últimos 6 meses": 4320,
-        }
-        
-        col_preset, col_custom = st.columns([2, 2])
-        
-        with col_preset:
-            preset = st.selectbox(
-                "Período rápido",
-                options=list(period_presets.keys()),
-                index=1,  # 7 dias padrão
-                key=f"preset_{machine_id}"
-            )
-            hours = period_presets[preset]
-        
-        with col_custom:
-            # Date picker para período customizado
-            from datetime import datetime, timedelta
-            default_start = datetime.now() - timedelta(hours=hours)
-            date_range = st.date_input(
-                "Período personalizado",
-                value=(default_start.date(), datetime.now().date()),
-                max_value=datetime.now().date(),
-                key=f"date_range_{machine_id}"
-            )
+        with tab_metrics:
+            # Seletor de período histórico
+            st.subheader("📊 Histórico de Métricas")
             
-            # Se selecionou data customizada, usa ela
-            if isinstance(date_range, tuple) and len(date_range) == 2:
-                start_date, end_date = date_range
-                start_dt = datetime.combine(start_date, datetime.min.time())
-                end_dt = datetime.combine(end_date, datetime.max.time())
-                # Converte para horas
-                delta = end_dt - start_dt
-                hours = max(1, int(delta.total_seconds() / 3600))
+            # Presets de período
+            period_presets = {
+                "Últimas 24h": 24,
+                "Últimos 7 dias": 168,
+                "Últimos 30 dias": 720,
+                "Últimos 90 dias": 2160,
+                "Últimos 6 meses": 4320,
+            }
+            
+            col_preset, col_custom = st.columns([2, 2])
+            
+            with col_preset:
+                preset = st.selectbox(
+                    "Período rápido",
+                    options=list(period_presets.keys()),
+                    index=1,  # 7 dias padrão
+                    key=f"preset_{machine_id}"
+                )
+                hours = period_presets[preset]
+            
+            with col_custom:
+                # Date picker para período customizado
+                from datetime import datetime, timedelta
+                default_start = datetime.now() - timedelta(hours=hours)
+                date_range = st.date_input(
+                    "Período personalizado",
+                    value=(default_start.date(), datetime.now().date()),
+                    max_value=datetime.now().date(),
+                    key=f"date_range_{machine_id}"
+                )
+                
+                # Se selecionou data customizada, usa ela
+                if isinstance(date_range, tuple) and len(date_range) == 2:
+                    start_date, end_date = date_range
+                    start_dt = datetime.combine(start_date, datetime.min.time())
+                    end_dt = datetime.combine(end_date, datetime.max.time())
+                    # Converte para horas
+                    delta = end_dt - start_dt
+                    hours = max(1, int(delta.total_seconds() / 3600))
+            
+            # Busca medições
+            measurements = repo.get_measurements(machine_id, hours=hours, limit=settings.MAX_MEASUREMENTS)
+            render_metrics_charts(measurements, machine.tag)
+            
+            # Tabela de medições recentes
+            with st.expander("📋 Ver medições recentes (tabela)"):
+                if measurements:
+                    df_data = []
+                    for m in reversed(measurements[-50:]):
+                        df_data.append({
+                            "Hora": m.measured_at[:19].replace('T', ' '),
+                            "Latência (ms)": f"{m.latency_ms:.1f}" if m.latency_ms else "—",
+                            "Jitter (ms)": f"{m.jitter_ms:.1f}" if m.jitter_ms else "—",
+                            "Perda (%)": f"{m.packet_loss_percent:.1f}",
+                            "Status": m.status,
+                            "Enviados/Recebidos": f"{m.packets_received}/{m.packets_sent}",
+                        })
+                    st.dataframe(df_data, width="stretch", hide_index=True)
+                else:
+                    st.info("Nenhuma medição no período.")
         
-        # Busca medições
-        measurements = repo.get_measurements(machine_id, hours=hours, limit=settings.MAX_MEASUREMENTS)
-        render_metrics_charts(measurements, machine.tag)
-        
-        # Tabela de medições recentes
-        with st.expander("📋 Ver medições recentes (tabela)"):
-            if measurements:
-                df_data = []
-                for m in reversed(measurements[-50:]):
-                    df_data.append({
-                        "Hora": m.measured_at[:19].replace('T', ' '),
-                        "Latência (ms)": f"{m.latency_ms:.1f}" if m.latency_ms else "—",
-                        "Jitter (ms)": f"{m.jitter_ms:.1f}" if m.jitter_ms else "—",
-                        "Perda (%)": f"{m.packet_loss_percent:.1f}",
-                        "Status": m.status,
-                        "Enviados/Recebidos": f"{m.packets_received}/{m.packets_sent}",
-                    })
-                st.dataframe(df_data, width="stretch", hide_index=True)
-            else:
-                st.info("Nenhuma medição no período.")
+        with tab_traceroute:
+            render_traceroute_tab(repo, machine_id, machine.tag)
     
     except RepositoryError as e:
         st.error(f"Erro ao conectar ao Supabase: {e}")

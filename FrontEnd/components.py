@@ -10,11 +10,15 @@ from typing import Optional
 
 from repository import Machine, Measurement, Client
 
+# Import settings for sidebar caption
+from config import settings
+
 
 def render_machine_card(
     machine: Machine,
     client: Client,
     latest_measurement: Optional[Measurement],
+    latest_traceroute: Optional[dict],
     on_click: callable
 ) -> None:
     """
@@ -24,6 +28,7 @@ def render_machine_card(
         machine: Objeto Machine
         client: Objeto Client
         latest_measurement: Última medição ou None
+        latest_traceroute: Último traceroute ou None
         on_click: Callback ao clicar no card
     """
     # Determina cor do status
@@ -54,6 +59,9 @@ def render_machine_card(
         status_text = "SEM DADOS"
         latency = None
         loss = None
+    
+    # Traceroute badge
+    traceroute_badge = render_traceroute_badge(latest_traceroute)
     
     # Card HTML customizado (sem texto "Clique para ver...")
     card_html = f"""
@@ -113,6 +121,9 @@ def render_machine_card(
                 </div>
                 <div style="font-size: 0.7rem; color: #888; text-transform: uppercase;">Última</div>
             </div>
+        </div>
+        <div style="margin-top: 8px; text-align: center;">
+            {traceroute_badge}
         </div>
     </div>
     """
@@ -312,5 +323,198 @@ def render_sidebar_filters(repo) -> dict:
     }
 
 
-# Import settings for sidebar caption
-from config import settings
+return {
+        "client_id": selected_client_id,
+        "auto_refresh": auto_refresh,
+    }
+
+
+def render_traceroute_chart(traceroute: dict, machine_tag: str) -> None:
+    """
+    Renderiza gráfico estilo PingPlotter: hop-a-hop latency/loss.
+    
+    Args:
+        traceroute: Dicionário com traceroute e hops do Supabase
+        machine_tag: Tag da máquina para título
+    """
+    hops = traceroute.get("traceroute_hops", [])
+    if not hops:
+        st.info("Nenhum hop de traceroute disponível.")
+        return
+    
+    # Ordena hops por número
+    hops = sorted(hops, key=lambda h: h["hop_number"])
+    
+    # Prepara dados
+    hop_nums = [h["hop_number"] for h in hops]
+    ips = [h.get("ip") or "*" for h in hops]
+    hostnames = [h.get("hostname") or "" for h in hops]
+    latencies = [h.get("latency_ms") for h in hops]
+    losses = [h.get("packet_loss_percent", 0) for h in hops]
+    
+    # Labels para eixo X
+    labels = []
+    for i, (ip, host) in enumerate(zip(ips, hostnames)):
+        label = f"Hop {hop_nums[i]}\n{ip}"
+        if host:
+            label += f"\n({host})"
+        labels.append(label)
+    
+    # Cria figura com dois eixos Y
+    fig = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.1,
+        subplot_titles=("Latência por Hop (ms)", "Perda por Hop (%)"),
+        row_heights=[0.7, 0.3]
+    )
+    
+    # Latência - barras
+    lat_colors = []
+    for lat in latencies:
+        if lat is None:
+            lat_colors.append("#6c757d")  # cinza para timeout
+        elif lat < 20:
+            lat_colors.append("#28a745")  # verde
+        elif lat < 50:
+            lat_colors.append("#ffc107")  # amarelo
+        elif lat < 100:
+            lat_colors.append("#fd7e14")  # laranja
+        else:
+            lat_colors.append("#dc3545")  # vermelho
+    
+    fig.add_trace(
+        go.Bar(
+            x=list(range(len(hop_nums))),
+            y=[lat if lat is not None else 0 for lat in latencies],
+            name="Latência (ms)",
+            marker_color=lat_colors,
+            text=[f"{lat:.1f}ms" if lat is not None else "timeout" for lat in latencies],
+            textposition="outside",
+            hovertemplate="Hop %{x}<br>Latência: %{y:.1f}ms<extra></extra>",
+        ),
+        row=1, col=1
+    )
+    
+    # Perda - barras
+    loss_colors = ["#28a745" if l == 0 else "#ffc107" if l < 10 else "#dc3545" for l in losses]
+    
+    fig.add_trace(
+        go.Bar(
+            x=list(range(len(hop_nums))),
+            y=losses,
+            name="Perda (%)",
+            marker_color=loss_colors,
+            text=[f"{l:.0f}%" for l in losses],
+            textposition="outside",
+            hovertemplate="Hop %{x}<br>Perda: %{y:.1f}%<extra></extra>",
+        ),
+        row=2, col=1
+    )
+    
+    # Linhas de referência
+    fig.add_hline(y=1, line_dash="dash", line_color="#ffc107", row=2, col=1, annotation_text="1%")
+    fig.add_hline(y=5, line_dash="dash", line_color="#dc3545", row=2, col=1, annotation_text="5%")
+    
+    # Configura eixo X com labels dos hops
+    fig.update_xaxes(
+        tickmode="array",
+        tickvals=list(range(len(hop_nums))),
+        ticktext=labels,
+        tickangle=-45,
+        row=2, col=1
+    )
+    fig.update_xaxes(showticklabels=False, row=1, col=1)
+    
+    fig.update_yaxes(title_text="ms", row=1, col=1)
+    fig.update_yaxes(title_text="%", row=2, col=1, range=[0, 100])
+    
+    # Layout
+    dest_reached = "✅" if traceroute.get("destination_reached") else "❌"
+    fig.update_layout(
+        height=550,
+        title=f"🔍 Traceroute - {machine_tag} {dest_reached}",
+        title_x=0.5,
+        hovermode="x unified",
+        showlegend=False,
+        margin=dict(l=50, r=30, t=60, b=100),
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Tabela de hops
+    with st.expander("📋 Detalhes dos Hops"):
+        df_hops = pd.DataFrame([
+            {
+                "Hop": h["hop_number"],
+                "IP": h.get("ip") or "*",
+                "Hostname": h.get("hostname") or "—",
+                "Latência (ms)": f"{h.get('latency_ms'):.1f}" if h.get("latency_ms") else "timeout",
+                "Perda (%)": f"{h.get('packet_loss_percent', 0):.1f}",
+            }
+            for h in sorted(traceroute.get("traceroute_hops", []), key=lambda x: x["hop_number"])
+        ])
+        st.dataframe(df_hops, width="stretch", hide_index=True)
+
+
+def render_traceroute_badge(traceroute: dict | None) -> str:
+    """Retorna HTML para badge de traceroute no card."""
+    if not traceroute:
+        return '<span style="background:#6c757d;color:white;padding:2px 8px;border-radius:10px;font-size:0.7rem;font-weight:600;">🔍 Sem traceroute</span>'
+    
+    total_hops = traceroute.get("total_hops", 0)
+    reached = traceroute.get("destination_reached", False)
+    
+    if reached:
+        color = "#28a745"
+        text = f"🔍 Traceroute: {total_hops} hops ✅"
+    else:
+        color = "#ffc107"
+        text = f"🔍 Traceroute: {total_hops} hops ⚠️"
+    
+    return f'<span style="background:{color};color:white;padding:2px 8px;border-radius:10px;font-size:0.7rem;font-weight:600;">{text}</span>'
+
+
+def render_traceroute_tab(repo, machine_id: str, machine_tag: str) -> None:
+    """Renderiza aba de traceroute no detail view."""
+    traceroute = repo.get_latest_traceroute(machine_id)
+    
+    if not traceroute:
+        st.warning("Nenhum traceroute disponível para esta máquina.")
+        if st.button("🔄 Verificar agora"):
+            st.rerun()
+        return
+    
+    # Info do traceroute
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Hops", traceroute.get("total_hops", 0))
+    with col2:
+        reached = "✅ Sim" if traceroute.get("destination_reached") else "❌ Não"
+        st.metric("Destino Alcançado", reached)
+    with col3:
+        st.metric("Max Hops Config", traceroute.get("max_hops", 30))
+    with col4:
+        measured = traceroute.get("measured_at", "")[:16].replace("T", " ")
+        st.metric("Última Execução", measured)
+    
+    st.divider()
+    
+    # Gráfico principal
+    render_traceroute_chart(traceroute, traceroute.get("target_ip", "IP"))
+    
+    # Histórico
+    with st.expander("📜 Histórico de Traceroutes"):
+        history = repo.get_traceroute_history(machine_id, limit=20)
+        if history:
+            df_hist = pd.DataFrame([
+                {
+                    "Data": h["measured_at"][:16].replace("T", " "),
+                    "Hops": h.get("total_hops", 0),
+                    "Alcançado": "✅" if h.get("destination_reached") else "❌",
+                }
+                for h in history
+            ])
+            st.dataframe(df_hist, width="stretch", hide_index=True)
+        else:
+            st.info("Sem histórico de traceroutes.")

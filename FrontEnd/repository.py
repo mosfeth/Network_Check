@@ -44,6 +44,28 @@ class Measurement:
     measured_at: str
 
 
+@dataclass(frozen=True)
+class TracerouteHop:
+    hop_number: int
+    ip: str | None
+    hostname: str | None
+    latency_ms: float | None
+    packet_loss_percent: float
+
+
+@dataclass(frozen=True)
+class Traceroute:
+    id: str
+    client_id: str
+    machine_id: str
+    target_ip: str
+    max_hops: int
+    total_hops: int
+    destination_reached: bool
+    measured_at: str
+    hops: list[dict]
+
+
 class RepositoryError(RuntimeError):
     """Erro na comunicação com Supabase."""
     pass
@@ -144,7 +166,7 @@ class FrontendRepository:
         machine_id: str,
         hours: int = 24,
         limit: int = 500
-    ) -> list[Measurement]:
+    ) -> list[dict]:
         """Busca medições de uma máquina nas últimas N horas."""
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
         
@@ -156,24 +178,9 @@ class FrontendRepository:
             .order("measured_at", desc=False)  # Ordem cronológica para gráficos
             .limit(limit)
         )
-        
-        return [
-            Measurement(
-                id=row["id"],
-                client_id=row["client_id"],
-                machine_id=row["machine_id"],
-                latency_ms=row.get("latency_ms"),
-                jitter_ms=row.get("jitter_ms"),
-                packet_loss_percent=row["packet_loss_percent"],
-                packets_sent=row["packets_sent"],
-                packets_received=row["packets_received"],
-                status=row["status"],
-                measured_at=row["measured_at"],
-            )
-            for row in data
-        ]
+        return data
     
-    def get_latest_measurement(self, machine_id: str) -> Measurement | None:
+    def get_latest_measurement(self, machine_id: str) -> dict | None:
         """Retorna a medição mais recente de uma máquina."""
         data = self._execute(
             self.client.table("measurements")
@@ -184,19 +191,31 @@ class FrontendRepository:
         )
         if not data:
             return None
-        row = data[0]
-        return Measurement(
-            id=row["id"],
-            client_id=row["client_id"],
-            machine_id=row["machine_id"],
-            latency_ms=row.get("latency_ms"),
-            jitter_ms=row.get("jitter_ms"),
-            packet_loss_percent=row["packet_loss_percent"],
-            packets_sent=row["packets_sent"],
-            packets_received=row["packets_received"],
-            status=row["status"],
-            measured_at=row["measured_at"],
+        return data[0]
+    
+    def get_latest_traceroute(self, machine_id: str) -> dict | None:
+        """Retorna o traceroute mais recente de uma máquina com seus hops."""
+        data = self._execute(
+            self.client.table("traceroutes")
+            .select("*, traceroute_hops(*)")
+            .eq("machine_id", machine_id)
+            .order("measured_at", desc=True)
+            .limit(1)
         )
+        if not data:
+            return None
+        return data[0]
+    
+    def get_traceroute_history(self, machine_id: str, limit: int = 10) -> list[dict]:
+        """Retorna histórico de traceroutes para uma máquina."""
+        data = self._execute(
+            self.client.table("traceroutes")
+            .select("*")
+            .eq("machine_id", machine_id)
+            .order("measured_at", desc=True)
+            .limit(limit)
+        )
+        return data or []
     
     def get_machines_with_latest_status(self) -> list[dict[str, Any]]:
         """
