@@ -27,10 +27,10 @@ class SupabaseRepository:
                 timeout=5.0,
             )
             if 200 <= response.status_code < 300:
-                return True, "Supabase disponível"
-            return False, f"Supabase respondeu com status {response.status_code}"
+                return True, "Cloud disponível"
+            return False, f"Cloud respondeu com status {response.status_code}"
         except httpx.HTTPError as exc:
-            return False, f"Falha de conexão com Supabase: {exc}"
+            return False, f"Falha de conexão com Cloud: {exc}"
 
     def _execute(self, query):
         try:

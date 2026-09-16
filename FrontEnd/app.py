@@ -1,4 +1,4 @@
-# FrontEnd/app.py
+﻿# FrontEnd/app.py
 # Dashboard Principal - AI Network Analyzer
 
 import streamlit as st
@@ -107,6 +107,34 @@ def run_traceroute_cli(machine_id: str) -> bool:
         return False
 
 
+def get_diary_events(limit: int = 30) -> list[dict]:
+    """Lê os últimos eventos do diary.log."""
+    from pathlib import Path
+    diary_path = Path(__file__).resolve().parents[2] / "data" / "diary.log"
+    if not diary_path.exists():
+        return []
+    events = []
+    with open(diary_path, encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split(" | ", 2)
+            if len(parts) < 2:
+                continue
+            timestamp = parts[0]
+            rest = parts[1]
+            message = parts[2] if len(parts) > 2 else ""
+            event_type = rest.split(" ", 1)[0] if " " in rest else rest
+            events.append({
+                "timestamp": timestamp,
+                "event": event_type,
+                "message": message,
+                "raw": line,
+            })
+    return events[-limit:]
+
+
 def render_cards_view(repo: FrontendRepository, client_id: Optional[str]) -> None:
     """Renderiza a view de cards (lista de máquinas)."""
     st.markdown('<h1 class="main-header">AI Network Analyzer</h1>', unsafe_allow_html=True)
@@ -168,7 +196,7 @@ def render_cards_view(repo: FrontendRepository, client_id: Optional[str]) -> Non
                         )
     
     except RepositoryError as e:
-        st.error(f"Erro ao conectar ao Supabase: {e}")
+        st.error(f"Erro ao conectar ao Cloud: {e}")
     except Exception as e:
         st.error(f"Erro inesperado: {e}")
 
@@ -341,7 +369,7 @@ def render_detail_view(repo: FrontendRepository) -> None:
             render_alert_tab(repo, machine_id, machine.tag)
     
     except RepositoryError as e:
-        st.error(f"Erro ao conectar ao Supabase: {e}")
+        st.error(f"Erro ao conectar ao Cloud: {e}")
     except Exception as e:
         st.error(f"Erro inesperado: {e}")
 
@@ -360,7 +388,7 @@ def main() -> None:
     # Sidebar
     filters = render_sidebar_filters(repo)
     
-    # Status do Supabase na sidebar
+    # Status do Cloud na sidebar
     with st.sidebar:
         if st.session_state.get("health_ok"):
             st.success(f"✅ {st.session_state.health_msg}")
@@ -399,6 +427,26 @@ def main() -> None:
                 st.markdown("<span style='color: #28a745; font-size: 0.85rem;'>✓ Nenhum alerta ativo</span>", unsafe_allow_html=True)
         except Exception:
             st.caption("Nenhum dado de alerta disponível")
+        
+        # Últimos eventos no sidebar
+        st.divider()
+        st.markdown("### 📋 Últimos Eventos")
+        try:
+            events = get_diary_events(30)
+            for event in reversed(events):
+                timestamp = event.get("timestamp", "")[:19]
+                message = event.get("message", "")[:80]
+                event_type = event.get("event", "")
+                color = "#888"
+                if "ERRO" in event_type or "FALHA" in event_type:
+                    color = "#dc3545"
+                elif "OK" in event_type:
+                    color = "#28a745"
+                elif "ALERT" in event_type:
+                    color = "#fd7e14"
+                st.markdown(f'<span style="color:{color};font-size:0.75rem;">{timestamp} | {message}</span>', unsafe_allow_html=True)
+        except Exception:
+            st.caption("Nenhum evento disponível")
     
     # Auto-refresh não-bloqueante (a cada 30 segundos)
     if filters["auto_refresh"]:

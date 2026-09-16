@@ -337,7 +337,7 @@ def render_sidebar_filters(repo) -> dict:
         
         st.divider()
         st.caption("AI Network Analyzer v1.0")
-        st.caption(f"Fonte: Supabase ({settings.SUPABASE_URL[:30]}...)")
+        st.caption(f"Fonte: Cloud ({settings.SUPABASE_URL[:30]}...)")
     
     return {
         "client_id": selected_client_id,
