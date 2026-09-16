@@ -5,6 +5,7 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 from typing import Optional
 import pandas as pd
+from datetime import datetime
 import subprocess
 import os
 
@@ -106,6 +107,27 @@ def run_traceroute_cli(machine_id: str) -> bool:
     except FileNotFoundError:
         st.error("Python não encontrado.")
         return False
+
+
+def format_event_time(timestamp: str) -> str:
+    """Converte timestamp UTC para America/Sao_Paulo e formata como DD/MM HH:MM."""
+    if not timestamp:
+        return ""
+    try:
+        # Tenta parsear como ISO format
+        if "T" in timestamp:
+            dt = pd.to_datetime(timestamp)
+        else:
+            dt = pd.to_datetime(timestamp, errors="coerce")
+        if dt is pd.NaT or dt is None:
+            return timestamp[:5]  # DD/MM HH:MM fallback
+        # Converte para America/Sao_Paulo
+        if dt.tz is None:
+            dt = dt.tz_localize("UTC")
+        dt_sp = dt.tz_convert("America/Sao_Paulo")
+        return dt_sp.strftime("%d/%m %H:%M")
+    except Exception:
+        return timestamp[:5] if len(timestamp) >= 5 else timestamp
 
 
 def get_sidebar_events(repo: FrontendRepository, limit: int = 30) -> list[dict]:
@@ -498,7 +520,7 @@ def main() -> None:
         try:
             events = get_sidebar_events(repo, 30)
             for event in reversed(events):
-                timestamp = event.get("timestamp", "")[:19]
+                timestamp = format_event_time(event.get("timestamp", ""))
                 message = event.get("message", "")[:80]
                 color = "#888"
                 severity = event.get("severity", "ok")
