@@ -198,7 +198,20 @@ class SupabaseRepository:
             self.client.table("measurements").delete().lt("measured_at", cutoff_iso)
         )
         return len(data) if data else 0
-
+    
+    def cleanup_internet_check_traceroutes(self) -> int:
+        """Remove dados de traceroute de máquinas INTERNET-CHECK (stale)."""
+        machines = self._execute(
+            self.client.table("machines").select("id").eq("tag", "INTERNET-CHECK")
+        )
+        if not machines:
+            return 0
+        machine_ids = [m["id"] for m in machines]
+        data = self._execute(
+            self.client.table("traceroutes").delete().in_("machine_id", machine_ids)
+        )
+        return len(data) if data else 0
+    
     def save_traceroute(self, result: TracerouteResult, client_id: str, machine_id: str) -> str:
         """Salva resultado de traceroute e retorna ID do traceroute."""
         # Insere traceroute principal
