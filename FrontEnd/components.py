@@ -328,7 +328,7 @@ def render_sidebar_filters(repo) -> dict:
         selected_client_id = client_options[selected_client_name]
         
         st.divider()
-        st.caption("NetPulse")
+        st.caption("AI Network Analyzer")
     
     return {
         "client_id": selected_client_id,

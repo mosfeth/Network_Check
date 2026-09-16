@@ -1,5 +1,5 @@
 ﻿# FrontEnd/app.py
-# Dashboard Principal - NetPulse
+# Dashboard Principal - AI Network Analyzer
 
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
@@ -138,7 +138,7 @@ def get_diary_events(limit: int = 30) -> list[dict]:
 
 def render_cards_view(repo: FrontendRepository, client_id: Optional[str]) -> None:
     """Renderiza a view de cards (lista de máquinas)."""
-    st.markdown('<h1 class="main-header">NetPulse</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">AI Network Analyzer</h1>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">Clique em um card para ver métricas detalhadas da máquina</p>', unsafe_allow_html=True)
     
     # Tenta buscar máquinas com status
