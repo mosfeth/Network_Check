@@ -37,5 +37,5 @@
 # PARA INICIAR:
 #   1. Instalar fastAI: pip install fastai
 #   2. Dar feedback nas máquinas (clicar nos botões no dashboard)
-#   3. Executar treinamento: python -m ai.train
+# 3. Executar treinamento: python -m AI.train
 #   4. Verificar previsões no dashboard

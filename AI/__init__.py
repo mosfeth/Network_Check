@@ -35,7 +35,7 @@
 #   }
 #
 # Quanto mais dados, melhor o modelo fica.
-# A cada ~50 feedbacks, recomenda-se rodar o treinamento (ai/train.py).
+# A cada ~50 feedbacks, recomenda-se rodar o treinamento (AI/train.py).
 #
 # DEPENDÊNCIA: fastAI (pip install fastai) - instalar manualmente quando desejar
 #              usar a IA. O projeto funciona normalmente sem ela.

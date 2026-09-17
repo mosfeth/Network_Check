@@ -217,7 +217,13 @@ def _save_feedback(machine_id: str, label: str, measurement: Optional[dict]) -> 
         melhor a classificação automática fica.
     """
     try:
-        from ai.feedback import prepare_feedback_data
+        # Adiciona raiz do projeto ao sys.path para importar AI.*
+        import sys, os
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if project_root not in sys.path:
+            sys.path.insert(0, project_root)
+
+        from AI.feedback import prepare_feedback_data
         
         if measurement:
             data = prepare_feedback_data(

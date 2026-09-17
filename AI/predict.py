@@ -26,7 +26,7 @@
 #   Isso será implementado na Fase 4 (longo prazo).
 #
 # EXEMPLO DE USO:
-#   from ai.predict import predict_measurement
+#   from AI.predict import predict_measurement
 #   result = predict_measurement(
 #       latency_ms=25.3,
 #       jitter_ms=5.1,
@@ -97,7 +97,7 @@ def predict_measurement(
     """
     # Se nenhum modelo foi passado, tenta carregar o mais recente
     if model is None:
-        from ai.model import create_model, FEATURES
+        from AI.model import create_model, FEATURES
         model_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
             "AI", "models", "latest.pkl",

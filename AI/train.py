@@ -33,8 +33,8 @@
 #   - Recomendado: 200+ dados para resultados confiáveis
 #
 # COMO EXECUTAR:
-#   python -m ai.train
-#   python -m ai.train --epochs 50 --min-samples 100
+#   python -m AI.train
+#   python -m AI.train --epochs 50 --min-samples 100
 #
 # RECURSOS DE SEGURANÇA:
 #   - Validação de dados mínimos antes de treinar
@@ -189,8 +189,8 @@ def train(
 
     # PASSO 2: Coletar dados
     print(f"\n[2/7] Coletando dados dos últimos {days} dias...")
-    from ai.data import build_training_row
-    from ai.feedback import classify_status
+    from AI.data import build_training_row
+    from AI.feedback import classify_status
 
     # TODO: Implementar conexão com Supabase
     # data = collect_training_data(machine_id=machine_id, days=days)
@@ -214,7 +214,7 @@ def train(
 
     # PASSO 5: Treinamento (placeholder)
     print(f"\n[5/7] Treinando por {epochs} épocas...")
-    # from ai.model import create_model, get_learner, FEATURES, LABELS
+    from AI.model import create_model, get_learner, FEATURES, LABELS
     # learner = get_learner(dls)
     # learner.fit_one_cycle(epochs)
     print("   ⚠️  Placeholder - implementar com fastAI")
