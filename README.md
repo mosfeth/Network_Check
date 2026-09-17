@@ -202,6 +202,16 @@ O FrontEnd é um dashboard Streamlit separado que roda na **porta 8502** e ofere
 - Auto-atualizar (30s)
 - Painel de alertas ativos
 
+### Solução de Problemas
+
+Se ao clicar em um card aparecer erro `Failed to fetch dynamically imported module`:
+
+1. **Limpe o cache do navegador** para `localhost:8502`:
+   - Chrome: `Ctrl+Shift+Delete` → "Imagens e arquivos em cache" → Limpar
+   - Ou abra em **modo anônimo** (`Ctrl+Shift+N`)
+2. **Atualize forçadamente** a página: `Ctrl+Shift+R`
+3. Se persistir, **reinicie o Streamlit**: feche todas as janelas e execute `.\start.ps1` novamente
+
 ---
 
 ## Sistema de Alertas
