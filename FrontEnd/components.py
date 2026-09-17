@@ -154,9 +154,99 @@ def render_machine_card(
     container = st.container()
     with container:
         st.markdown(card_html, unsafe_allow_html=True)
-        # Botão com label da máquina - clica no botão = clica no card
+        
+        # ========== BOTÕES DE FEEDBACK IA ==========
+        # Três botões para o operador classificar o sinal:
+        #   🟢 Bom:    Rede operando normalmente
+        #   🟡 Médio:  Rede funcionando com ressalvas
+        #   🔴 Ruim:   Rede com problemas graves
+        #
+        # Estes botões alimentam o modelo de IA em AI/feedback.py
+        # Gradualmente o modelo aprende a classificar automaticamente.
+        col_good, col_med, col_bad = st.columns(3)
+        
+        with col_good:
+            if st.button(
+                "🟢 Bom",
+                key=f"fb_good_{machine.id}",
+                use_container_width=True,
+            ):
+                _save_feedback(machine.id, "bom", latest_measurement)
+                st.success("Feedback: Bom ✓")
+        
+        with col_med:
+            if st.button(
+                "🟡 Médio",
+                key=f"fb_med_{machine.id}",
+                use_container_width=True,
+            ):
+                _save_feedback(machine.id, "medio", latest_measurement)
+                st.success("Feedback: Médio ✓")
+        
+        with col_bad:
+            if st.button(
+                "🔴 Ruim",
+                key=f"fb_bad_{machine.id}",
+                use_container_width=True,
+            ):
+                _save_feedback(machine.id, "ruim", latest_measurement)
+                st.success("Feedback: Ruim ✓")
+        
+        st.markdown(
+            "<sub style='color:#888;'>💡 Dê feedback para treinar a IA (em desenvolvimento)</sub>",
+            unsafe_allow_html=True,
+        )
+        
+        # Botão para ver detalhes
         if st.button(f"▶ Ver detalhes: {machine.tag}", key=f"card_{machine.id}", use_container_width=True):
             on_click(machine.id)
+
+
+def _save_feedback(machine_id: str, label: str, measurement: Optional[dict]) -> None:
+    """
+    Salva feedback do operador no Supabase.
+
+    Args:
+        machine_id: ID da máquina
+        label: "bom", "medio", ou "ruim"
+        measurement: Última medição (para extrair métricas)
+
+    IMPORTANTE:
+        Esta função é o elo entre o operador e a IA.
+        Cada feedback treina o modelo. Quanto mais feedbacks,
+        melhor a classificação automática fica.
+    """
+    try:
+        from ai.feedback import prepare_feedback_data
+        
+        if measurement:
+            data = prepare_feedback_data(
+                machine_id=machine_id,
+                label=label,
+                latency_ms=measurement.get("latency_ms"),
+                jitter_ms=measurement.get("jitter_ms"),
+                packet_loss_percent=measurement.get("packet_loss_percent", 0),
+                packets_received=measurement.get("packets_received", 0),
+                packets_sent=measurement.get("packets_sent", 0),
+                measured_at=measurement.get("measured_at"),
+            )
+        else:
+            data = prepare_feedback_data(
+                machine_id=machine_id,
+                label=label,
+                latency_ms=None,
+                jitter_ms=None,
+                packet_loss_percent=0.0,
+                packets_received=0,
+                packets_sent=0,
+            )
+        
+        from supabase import create_client
+        from config import settings as fe_settings
+        client = create_client(fe_settings.SUPABASE_URL, fe_settings.SUPABASE_KEY)
+        client.table("machine_feedback").insert(data).execute()
+    except Exception as exc:
+        st.error(f"Erro ao salvar feedback: {exc}")
 
 
 def render_metrics_charts(measurements: list[dict], machine_tag: str) -> None:

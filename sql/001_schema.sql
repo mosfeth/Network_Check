@@ -101,6 +101,24 @@ CREATE INDEX IF NOT EXISTS idx_alert_events_machine ON public.alert_events(machi
 CREATE INDEX IF NOT EXISTS idx_alert_events_status ON public.alert_events(status);
 CREATE INDEX IF NOT EXISTS idx_alert_events_started_at ON public.alert_events(started_at DESC);
 
+CREATE TABLE IF NOT EXISTS public.machine_feedback (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    machine_id uuid NOT NULL REFERENCES public.machines(id) ON DELETE CASCADE,
+    label text NOT NULL CHECK (label IN ('bom', 'medio', 'ruim')),
+    latency_ms numeric,
+    jitter_ms numeric,
+    packet_loss_percent numeric,
+    packets_sent int,
+    packets_received int,
+    hour_of_day int,
+    day_of_week int,
+    notes text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_machine ON public.machine_feedback(machine_id);
+CREATE INDEX IF NOT EXISTS idx_feedback_created ON public.machine_feedback(created_at DESC);
+
 ALTER TABLE public.clients ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.machines ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.measurements ENABLE ROW LEVEL SECURITY;
@@ -108,6 +126,7 @@ ALTER TABLE public.traceroutes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.traceroute_hops ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.alert_rules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.alert_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.machine_feedback ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "service_role_all_clients" ON public.clients FOR ALL TO service_role USING (true) WITH CHECK (true);
 CREATE POLICY "service_role_all_machines" ON public.machines FOR ALL TO service_role USING (true) WITH CHECK (true);
@@ -116,3 +135,4 @@ CREATE POLICY "service_role_all_traceroutes" ON public.traceroutes FOR ALL TO se
 CREATE POLICY "service_role_all_traceroute_hops" ON public.traceroute_hops FOR ALL TO service_role USING (true) WITH CHECK (true);
 CREATE POLICY "service_role_all_alert_rules" ON public.alert_rules FOR ALL TO service_role USING (true) WITH CHECK (true);
 CREATE POLICY "service_role_all_alert_events" ON public.alert_events FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "service_role_all_machine_feedback" ON public.machine_feedback FOR ALL TO service_role USING (true) WITH CHECK (true);

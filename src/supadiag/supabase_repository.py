@@ -342,3 +342,40 @@ class SupabaseRepository:
             .order("measured_at", desc=False)
         )
         return data or []
+
+    # ========== MACHINE FEEDBACK METHODS ==========
+
+    def save_machine_feedback(self, data: dict) -> str | None:
+        """Salva feedback do operador e retorna o ID."""
+        result = self._execute(self.client.table("machine_feedback").insert(data))
+        if result:
+            return result[0].get("id")
+        return None
+
+    def list_machine_feedback(
+        self,
+        machine_id: str | None = None,
+        label: str | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Lista feedbacks do Supabase."""
+        query = self.client.table("machine_feedback").select("*").order("created_at", desc=True)
+        if machine_id:
+            query = query.eq("machine_id", machine_id)
+        if label:
+            query = query.eq("label", label)
+        query = query.limit(limit)
+        return self._execute(query) or []
+
+    def get_feedback_stats(self, machine_id: str) -> dict:
+        """Retorna estatísticas de feedback para uma máquina."""
+        feedbacks = self.list_machine_feedback(machine_id=machine_id, limit=1000)
+        if not feedbacks:
+            return {"total": 0, "bom": 0, "medio": 0, "ruim": 0}
+        
+        stats = {"total": len(feedbacks), "bom": 0, "medio": 0, "ruim": 0}
+        for fb in feedbacks:
+            label = fb.get("label", "")
+            if label in stats:
+                stats[label] += 1
+        return stats

@@ -102,6 +102,22 @@ class AlertRule:
 
 
 @dataclass(frozen=True)
+class MachineFeedback:
+    id: str | None
+    machine_id: str
+    label: str  # "bom", "medio", "ruim"
+    latency_ms: float | None
+    jitter_ms: float | None
+    packet_loss_percent: float
+    packets_received: int
+    packets_sent: int
+    hour_of_day: int
+    day_of_week: int
+    notes: str | None
+    created_at: str
+
+
+@dataclass(frozen=True)
 class AlertEvent:
     id: str
     rule_id: str
