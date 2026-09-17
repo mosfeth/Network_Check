@@ -290,3 +290,23 @@ class FrontendRepository:
             })
         
         return result
+    
+    def save_feedback(self, machine_id: str, label: str, measurement: Optional[dict]) -> dict | None:
+        """Salva feedback do operador no Supabase."""
+        from datetime import datetime, timezone
+        
+        data = {
+            "machine_id": machine_id,
+            "label": label,
+            "latency_ms": measurement.get("latency_ms") if measurement else None,
+            "jitter_ms": measurement.get("jitter_ms") if measurement else None,
+            "packet_loss_percent": measurement.get("packet_loss_percent", 0) if measurement else 0.0,
+            "packets_received": measurement.get("packets_received", 0) if measurement else 0,
+            "packets_sent": measurement.get("packets_sent", 0) if measurement else 0,
+            "hour_of_day": datetime.now(timezone.utc).hour,
+            "day_of_week": datetime.now(timezone.utc).weekday(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        
+        result = self._execute(self.client.table("machine_feedback").insert(data))
+        return result[0] if result else None

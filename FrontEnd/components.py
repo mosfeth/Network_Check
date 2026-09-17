@@ -221,52 +221,25 @@ def render_machine_card(
 def _save_feedback(machine_id: str, label: str, measurement: Optional[dict]) -> None:
     """
     Salva feedback do operador no Supabase.
-
+    
     Args:
         machine_id: ID da máquina
         label: "bom", "medio", ou "ruim"
         measurement: Última medição (para extrair métricas)
-
+    
     IMPORTANTE:
         Esta função é o elo entre o operador e a IA.
         Cada feedback treina o modelo. Quanto mais feedbacks,
         melhor a classificação automática fica.
     """
     try:
-        # Adiciona raiz do projeto ao sys.path para importar AI.*
-        import sys, os
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        if project_root not in sys.path:
-            sys.path.insert(0, project_root)
-
-        from AI.feedback import prepare_feedback_data
-        
-        if measurement:
-            data = prepare_feedback_data(
-                machine_id=machine_id,
-                label=label,
-                latency_ms=measurement.get("latency_ms"),
-                jitter_ms=measurement.get("jitter_ms"),
-                packet_loss_percent=measurement.get("packet_loss_percent", 0),
-                packets_received=measurement.get("packets_received", 0),
-                packets_sent=measurement.get("packets_sent", 0),
-                measured_at=measurement.get("measured_at"),
-            )
+        from repository import FrontendRepository
+        repo = FrontendRepository()
+        result = repo.save_feedback(machine_id, label, measurement)
+        if result:
+            st.success("Feedback salvo!")
         else:
-            data = prepare_feedback_data(
-                machine_id=machine_id,
-                label=label,
-                latency_ms=None,
-                jitter_ms=None,
-                packet_loss_percent=0.0,
-                packets_received=0,
-                packets_sent=0,
-            )
-        
-        from supabase import create_client
-        from config import settings as fe_settings
-        client = create_client(fe_settings.SUPABASE_URL, fe_settings.SUPABASE_KEY)
-        client.table("machine_feedback").insert(data).execute()
+            st.error("Falha ao salvar feedback")
     except Exception as exc:
         st.error(f"Erro ao salvar feedback: {exc}")
 
