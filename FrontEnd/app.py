@@ -159,14 +159,12 @@ def get_sidebar_events(repo: FrontendRepository, limit: int = 30) -> list[dict]:
                     started = event.get("started_at", "")[:19].replace("T", " ")
                     
                     if severity == "critical" or event.get("status") == "firing":
-                        icon = "🔴"
-                        event_type = "CRITICAL"
+                        icon = "[CRITICAL]"
                     elif severity == "warning":
-                        icon = "🟡"
-                        event_type = "WARNING"
+                        icon = "[WARNING]"
                     else:
-                        icon = "🟠"
-                        event_type = "ACK"
+                        icon = "[ACK]"
+                    event_type = "CRITICAL" if severity == "critical" else "WARNING" if severity == "warning" else "ACK"
                     
                     events.append({
                         "timestamp": started or "",
@@ -188,28 +186,28 @@ def get_sidebar_events(repo: FrontendRepository, limit: int = 30) -> list[dict]:
                 events.append({
                     "timestamp": measured,
                     "event": "UNREACHABLE",
-                    "message": f"🔴 {machine_tag}: INALCANÇÁVEL (loss: {loss}%)",
+                    "message": f"[CRITICAL] {machine_tag}: INALCANCAVEL (loss: {loss}%)",
                     "severity": "critical",
                 })
             elif status == "partial":
                 events.append({
                     "timestamp": measured,
                     "event": "PARTIAL",
-                    "message": f"🟡 {machine_tag}: PARCIAL (lat: {latency}ms, loss: {loss}%)",
+                    "message": f"[WARNING] {machine_tag}: PARCIAL (lat: {latency}ms, loss: {loss}%)",
                     "severity": "warning",
                 })
             elif status == "error":
                 events.append({
                     "timestamp": measured,
                     "event": "ERROR",
-                    "message": f"🔴 {machine_tag}: ERRO",
+                    "message": f"[CRITICAL] {machine_tag}: ERRO",
                     "severity": "critical",
                 })
             else:
                 events.append({
                     "timestamp": measured,
                     "event": "OK",
-                    "message": f"🟢 {machine_tag}: OK ({latency}ms)",
+                    "message": f"[OK] {machine_tag}: OK ({latency}ms)",
                     "severity": "ok",
                 })
     
@@ -254,11 +252,11 @@ def render_cards_view(repo: FrontendRepository, client_id: Optional[str]) -> Non
         
         col1, col2, col3, col4, col5, col6 = st.columns(6)
         col1.metric("Total", total)
-        col2.metric("🟢 OK", ok_count)
-        col3.metric("🟡 Parcial", warning_count)
-        col4.metric("🔴 Crítico", critical_count)
-        col5.metric("⚪ Sem dados", no_data_count)
-        col6.metric("🔔 Alertas", alert_active_count)
+        col2.metric("OK", ok_count)
+        col3.metric("Parcial", warning_count)
+        col4.metric("Critico", critical_count)
+        col5.metric("Sem dados", no_data_count)
+        col6.metric("Alertas", alert_active_count)
         
         st.divider()
         
@@ -309,7 +307,7 @@ def render_detail_view(repo: FrontendRepository) -> None:
         # Header com botão voltar
         col1, col2 = st.columns([6, 1])
         with col1:
-            st.markdown(f'<h1 class="main-header">📈 {machine.tag}</h1>', unsafe_allow_html=True)
+            st.markdown(f'<h1 class="main-header">{machine.tag}</h1>', unsafe_allow_html=True)
             st.markdown(f'<p class="sub-header">Cliente: {client.name if client else "Desconhecido"} • IP: {machine.ip} • Frequência: {machine.frequency_seconds}s</p>', unsafe_allow_html=True)
         with col2:
             if st.button("← Voltar", use_container_width=True):
@@ -368,14 +366,79 @@ def render_detail_view(repo: FrontendRepository) -> None:
         else:
             st.warning("Nenhuma medição registrada para esta máquina.")
         
+        # ========== GRÁFICO DE EVOLUÇÃO DA ACURÁCIA DA IA ==========
+        st.subheader("Evolução da Acurácia da IA")
+        try:
+            from supabase import create_client
+            from config import settings as fe_settings
+            sb = create_client(fe_settings.SUPABASE_URL, fe_settings.SUPABASE_KEY)
+            feedbacks = sb.table("machine_feedback").select("*").eq("machine_id", machine_id).order("created_at", desc=True).limit(100).execute().data or []
+            
+            if feedbacks:
+                total = len(feedbacks)
+                score = sum(1.0 if f["label"] == "bom" else 0.5 if f["label"] == "medio" else 0.0 for f in feedbacks)
+                accuracy = round(score / total * 100, 1)
+                
+                acc_color = "#28a745" if accuracy >= 80 else "#ffc107" if accuracy >= 50 else "#dc3545"
+                st.markdown(
+                    f'<div style="background:{acc_color}20;border:1px solid {acc_color};border-radius:6px;padding:12px;margin:8px 0;">'
+                    f'<strong style="color:{acc_color};">Acurácia: {accuracy}%</strong> '
+                    f'<span style="color:#888;">({len(feedbacks)} feedbacks)</span>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+                
+                # Gráfico de evolução da acurácia
+                feedbacks_sorted = sorted(feedbacks, key=lambda x: x["created_at"])
+                acc_history = []
+                cumulative_score = 0
+                for i, fb in enumerate(feedbacks_sorted, 1):
+                    val = 1.0 if fb["label"] == "bom" else 0.5 if fb["label"] == "medio" else 0.0
+                    cumulative_score += val
+                    acc_history.append({
+                        "feedback": i,
+                        "acuracia": round(cumulative_score / i * 100, 1),
+                        "data": fb["created_at"][:10]
+                    })
+                
+                import pandas as pd
+                df_acc = pd.DataFrame(acc_history)
+                
+                import plotly.graph_objects as go
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=df_acc["feedback"],
+                    y=df_acc["acuracia"],
+                    mode='lines+markers',
+                    name='Acurácia',
+                    line=dict(color='#1f77b4', width=2),
+                    marker=dict(size=6),
+                    hovertemplate='Feedback %{x}<br>Acurácia: %{y}%<extra></extra>'
+                ))
+                fig.add_hline(y=80, line_dash="dash", line_color="green", annotation_text="Meta 80%")
+                fig.update_layout(
+                    title="Evolução da Acurácia",
+                    xaxis_title="Nº Feedback",
+                    yaxis_title="Acurácia (%)",
+                    yaxis=dict(range=[0, 105]),
+                    height=300,
+                    margin=dict(l=20, r=20, t=40, b=20),
+                    template="plotly_white"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Sem feedbacks suficientes para mostrar evolução da acurácia")
+        except Exception as e:
+            st.caption(f"Dados de acurácia indisponíveis: {e}")
+        
         st.divider()
         
         # Abas: Métricas | Traceroute | Alertas
-        tab_metrics, tab_traceroute, tab_alerts = st.tabs(["📊 Métricas", "🔍 Traceroute", "🔔 Alertas"])
+        tab_metrics, tab_traceroute, tab_alerts = st.tabs(["Métricas", "Traceroute", "Alertas"])
         
         with tab_metrics:
             # Seletor de período histórico
-            st.subheader("📊 Histórico de Métricas")
+            st.subheader("Histórico de Métricas")
             
             # Presets de período
             period_presets = {
@@ -422,7 +485,7 @@ def render_detail_view(repo: FrontendRepository) -> None:
             render_metrics_charts(measurements, machine.tag)
             
             # Tabela de medições recentes
-            with st.expander("📋 Ver medições recentes (tabela)"):
+            with st.expander("Ver medições recentes (tabela)"):
                 if measurements:
                     df_data = []
                     for m in reversed(measurements[-50:]):
@@ -443,8 +506,8 @@ def render_detail_view(repo: FrontendRepository) -> None:
         with tab_traceroute:
             traceroute_exists = repo.get_latest_traceroute(machine_id) is not None
             if not traceroute_exists:
-                st.info(f"ℹ️ Traceroute para {machine.tag} ({machine.ip}). Será executado automaticamente quando a qualidade da conexão mudar de OK.")
-                if st.button("🔍 Executar Traceroute Agora", use_container_width=True):
+                st.info(f"Traceroute para {machine.tag} ({machine.ip}). Sera executado automaticamente quando a qualidade da conexao mudar de OK.")
+                if st.button("Executar Traceroute Agora", use_container_width=True):
                     if run_traceroute_cli(machine_id):
                         st.rerun()
             else:
@@ -470,20 +533,20 @@ def main() -> None:
         st.session_state.health_ok = ok
         st.session_state.health_msg = msg
     
-    # Sidebar
+# Sidebar
     filters = render_sidebar_filters(repo)
     
     # Sidebar content
     with st.sidebar:
         # Cloud status
         if st.session_state.get("health_ok"):
-            st.success("☁️ Cloud Online")
+            st.success("Cloud Online")
         else:
-            st.error("❌ Cloud Offline")
+            st.error("Cloud Offline")
         
-        # Seção IA no sidebar
+        # Secao IA no sidebar
         st.divider()
-        st.markdown("### 🤖 Rede Neural")
+        st.markdown("### Rede Neural")
         
         # Estatísticas gerais de IA
         try:
@@ -507,22 +570,40 @@ def main() -> None:
         except Exception:
             st.caption("Dados de IA indisponíveis")
         
-        # Eventos de IA (treinamento, etc)
+        # Eventos de IA - Feedback de treinamento da rede neural
         st.divider()
-        st.markdown("### 🧠 Eventos IA")
+        st.markdown("### Eventos IA")
         try:
-            ai_events = repo.get_ai_events(10)
-            if ai_events:
-                for event in ai_events:
-                    st.caption(f"• {event}")
+            # Busca feedbacks recentes de todas as máquinas
+            from supabase import create_client
+            from config import settings as fe_settings
+            sb = create_client(fe_settings.SUPABASE_URL, fe_settings.SUPABASE_KEY)
+            recent_feedbacks = sb.table("machine_feedback").select("machine_id, label, packet_loss_percent, latency_ms, jitter_ms, created_at").order("created_at", desc=True).limit(15).execute().data or []
+            
+            if recent_feedbacks:
+                for fb in recent_feedbacks:
+                    label = fb.get("label", "")
+                    loss = fb.get("packet_loss_percent", 0)
+                    lat = fb.get("latency_ms")
+                    jitter = fb.get("jitter_ms")
+                    ts = fb.get("created_at", "")[:16].replace("T", " ")
+                    
+                    label_color = "#28a745" if label == "bom" else "#ffc107" if label == "medio" else "#dc3545"
+                    
+                    st.caption(
+                        f"{ts} | "
+                        f'<span style="color:{label_color};">{label.upper()}</span> | '
+                        f"Loss: {loss}% | Lat: {lat}ms | Jitter: {jitter}ms",
+                        unsafe_allow_html=True
+                    )
             else:
-                st.caption("Nenhum evento de IA registrado")
-        except Exception:
-            st.caption("Eventos IA indisponíveis")
+                st.caption("Nenhum evento de treinamento registrado")
+        except Exception as e:
+            st.caption(f"Eventos IA indisponíveis: {e}")
 
         # Alertas ativos no sidebar
         st.divider()
-        st.markdown("### 🔔 Alertas Ativos")
+        st.markdown("### Alertas Ativos")
         
         try:
             active_alerts = repo.list_alert_rules()
@@ -541,21 +622,21 @@ def main() -> None:
                         value = event.get("metric_value", 0)
                         
                         if severity == "critical" or event.get("status") == "firing":
-                            icon = "🔴"
+                            icon = "[CRITICAL]"
                         elif severity == "warning":
-                            icon = "🟡"
+                            icon = "[WARNING]"
                         else:
-                            icon = "🟠"
+                            icon = "[ACK]"
                         
                         st.markdown(f"{icon} **{machine_tag}** ({metric}: {value})")
             else:
-                st.markdown("<span style='color: #28a745; font-size: 0.85rem;'>✓ Nenhum alerta ativo</span>", unsafe_allow_html=True)
+                st.markdown("<span style='color: #28a745; font-size: 0.85rem;'>Nenhum alerta ativo</span>", unsafe_allow_html=True)
         except Exception:
-            st.caption("Nenhum dado de alerta disponível")
+            st.caption("Nenhum dado de alerta disponivel")
         
-        # Últimos eventos no sidebar
+        # Ultimos eventos no sidebar
         st.divider()
-        st.markdown("### 📋 Últimos Eventos")
+        st.markdown("### Ultimos Eventos")
         try:
             events = get_sidebar_events(repo, 30)
             for event in reversed(events):

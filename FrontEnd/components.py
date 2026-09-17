@@ -33,6 +33,20 @@ def render_machine_card(
         latest_alert_event: Último evento de alerta (dict) ou None
         on_click: Callback ao clicar no card
     """
+    # Calcula acurácia baseada nos feedbacks da máquina
+    accuracy = 0
+    try:
+        from supabase import create_client
+        from config import settings as fe_settings
+        sb = create_client(fe_settings.SUPABASE_URL, fe_settings.SUPABASE_KEY)
+        feedbacks = sb.table("machine_feedback").select("label").eq("machine_id", machine.id).execute().data or []
+        if feedbacks:
+            total = len(feedbacks)
+            score = sum(1.0 if f["label"] == "bom" else 0.5 if f["label"] == "medio" else 0.0 for f in feedbacks)
+            accuracy = round(score / total * 100, 1)
+    except Exception:
+        accuracy = 0
+    
     # Determina cor do status
     if latest_measurement:
         status = latest_measurement.get("status", "")
@@ -84,7 +98,9 @@ def render_machine_card(
         latest_alert_event.get("metric") if latest_alert_event else None,
     )
     
-    # Card HTML customizado (sem texto "Clique para ver...")
+    # Card HTML customizado
+    acc_color = "#28a745" if accuracy >= 80 else "#ffc107" if accuracy >= 50 else "#dc3545"
+    acc_label = f"{accuracy}%" if accuracy > 0 else "Sem dados"
     card_html = f"""
     <div style="
         border: 1px solid #e0e0e0;
@@ -99,8 +115,18 @@ def render_machine_card(
        onmouseout="this.style.boxShadow='0 2px 4px rgba(0,0,0,0.05)'; this.style.transform='translateY(0)'">
         <div style="display: flex; justify-content: space-between; align-items: flex-start;">
             <div>
-                <h4 style="margin: 0 0 4px 0; color: #1f77b4; font-size: 1.1rem;">
+                <h4 style="margin: 0 0 4px 0; color: #1f77b4; font-size: 1.1rem; display: flex; align-items: center; gap: 10px;">
                     {machine.tag}
+                    <span style="
+                        background: {acc_color};
+                        color: white;
+                        padding: 2px 8px;
+                        border-radius: 8px;
+                        font-size: 0.7rem;
+                        font-weight: 600;
+                    ">
+                        Acuracia: {acc_label}
+                    </span>
                 </h4>
                 <p style="margin: 0; color: #666; font-size: 0.9rem;">
                     {client.name if client else f"Cliente: {machine.client_id[:8]}..."}
@@ -119,7 +145,7 @@ def render_machine_card(
                     font-weight: 600;
                     display: inline-block;
                 ">
-                    {status_icon} {status_text}
+                    {status_text}
                 </span>
             </div>
         </div>
@@ -155,121 +181,40 @@ def render_machine_card(
     with container:
         st.markdown(card_html, unsafe_allow_html=True)
         
-        # ========== BOTÕES DE FEEDBACK IA ==========
-        # Três botões para o operador classificar o sinal:
-        #   🟢 Bom:    Rede operando normalmente
-        #   🟡 Médio:  Rede funcionando com ressalvas
-        #   🔴 Ruim:   Rede com problemas graves
-        #
-        # Estes botões alimentam o modelo de IA em AI/feedback.py
-        # Gradualmente o modelo aprende a classificar automaticamente.
+        # Botoes de feedback
         col_good, col_med, col_bad = st.columns(3)
         
         with col_good:
             if st.button(
-                "🟢 Bom",
+                "Bom",
                 key=f"fb_good_{machine.id}",
                 use_container_width=True,
             ):
                 _save_feedback(machine.id, "bom", latest_measurement)
-                st.success("Feedback: Bom ✓")
+                st.success("Feedback: Bom")
         
         with col_med:
             if st.button(
-                "🟡 Médio",
+                "Medio",
                 key=f"fb_med_{machine.id}",
                 use_container_width=True,
             ):
                 _save_feedback(machine.id, "medio", latest_measurement)
-                st.success("Feedback: Médio ✓")
+                st.success("Feedback: Medio")
         
         with col_bad:
             if st.button(
-                "🔴 Ruim",
+                "Ruim",
                 key=f"fb_bad_{machine.id}",
                 use_container_width=True,
             ):
                 _save_feedback(machine.id, "ruim", latest_measurement)
-                st.success("Feedback: Ruim ✓")
+                st.success("Feedback: Ruim")
         
-        st.markdown(
-            "<sub style='color:#888;'>💡 Dê feedback para treinar a IA (em desenvolvimento)</sub>",
-            unsafe_allow_html=True,
-        )
+        st.caption("De feedback para treinar a IA")
         
-        # ========== ACURÁCIA E GRÁFICO DE EVOLUÇÃO ==========
-        # Calcula acurácia baseada nos feedbacks da máquina
-        try:
-            from AI.data import build_training_row
-            from AI.predict import predict_measurement
-            
-            # Busca feedbacks da máquina para calcular acurácia
-            from supabase import create_client
-            from config import settings as fe_settings
-            sb = create_client(fe_settings.SUPABASE_URL, fe_settings.SUPABASE_KEY)
-            feedbacks = sb.table("machine_feedback").select("*").eq("machine_id", machine.id).order("created_at", desc=True).limit(100).execute().data or []
-            
-            if feedbacks:
-                total = len(feedbacks)
-                score = sum(1.0 if f["label"] == "bom" else 0.5 if f["label"] == "medio" else 0.0 for f in feedbacks)
-                accuracy = round(score / total * 100, 1)
-                
-                # Exibe acurácia
-                acc_color = "#28a745" if accuracy >= 80 else "#ffc107" if accuracy >= 50 else "#dc3545"
-                st.markdown(
-                    f'<div style="background:{acc_color}20;border:1px solid {acc_color};border-radius:6px;padding:8px;margin:8px 0;">'
-                    f'<strong style="color:{acc_color};">🎯 Acurácia: {accuracy}%</strong> '
-                    f'<span style="color:#888;">({len(feedbacks)} feedbacks)</span>'
-                    f'</div>',
-                    unsafe_allow_html=True
-                )
-                
-                # Gráfico de evolução da acurácia
-                # Calcula acurácia acumulada ao longo do tempo
-                feedbacks_sorted = sorted(feedbacks, key=lambda x: x["created_at"])
-                acc_history = []
-                cumulative_score = 0
-                for i, fb in enumerate(feedbacks_sorted, 1):
-                    val = 1.0 if fb["label"] == "bom" else 0.5 if fb["label"] == "medio" else 0.0
-                    cumulative_score += val
-                    acc_history.append({
-                        "feedback": i,
-                        "acuracia": round(cumulative_score / i * 100, 1),
-                        "data": fb["created_at"][:10]
-                    })
-                
-                import pandas as pd
-                df_acc = pd.DataFrame(acc_history)
-                
-                import plotly.graph_objects as go
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=df_acc["feedback"],
-                    y=df_acc["acuracia"],
-                    mode='lines+markers',
-                    name='Acurácia',
-                    line=dict(color='#1f77b4', width=2),
-                    marker=dict(size=6),
-                    hovertemplate='Feedback %{x}<br>Acurácia: %{y}%<extra></extra>'
-                ))
-                fig.add_hline(y=80, line_dash="dash", line_color="green", annotation_text="Meta 80%")
-                fig.update_layout(
-                    title="Evolução da Acurácia",
-                    xaxis_title="Nº Feedback",
-                    yaxis_title="Acurácia (%)",
-                    yaxis=dict(range=[0, 105]),
-                    height=200,
-                    margin=dict(l=20, r=20, t=30, b=20),
-                    template="plotly_white"
-                )
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("📊 Sem feedbacks suficientes para mostrar acurácia e gráfico")
-        except Exception as e:
-            st.caption(f"Dados de acurácia indisponíveis: {e}")
-        
-        # Botão para ver detalhes
-        if st.button(f"▶ Ver detalhes: {machine.tag}", key=f"card_{machine.id}", use_container_width=True):
+        # Botao para ver detalhes
+        if st.button(f"Ver detalhes: {machine.tag}", key=f"card_{machine.id}", use_container_width=True):
             on_click(machine.id)
 
 
