@@ -480,7 +480,10 @@ def render_detail_view(repo: FrontendRepository) -> None:
             
             # Busca medições
             measurements = repo.get_measurements(machine_id, hours=hours, limit=settings.MAX_MEASUREMENTS)
-            render_metrics_charts(measurements, machine.tag)
+            # Use machine_id and current timestamp as key to force re-render when switching cards
+            from datetime import datetime
+            key_suffix = f"{machine_id}_{int(datetime.now().timestamp())}"
+            render_metrics_charts(measurements, machine.tag, key_suffix)
             
             # Tabela de medições recentes
             with st.expander("Ver medições recentes (tabela)"):

@@ -244,29 +244,40 @@ def _save_feedback(machine_id: str, label: str, measurement: Optional[dict]) -> 
         st.error(f"Erro ao salvar feedback: {exc}")
 
 
-def render_metrics_charts(measurements: list[dict], machine_tag: str) -> None:
+def render_metrics_charts(measurements: list[dict], machine_tag: str, key_suffix: str = "") -> None:
     """
     Renderiza gráficos de métricas (latência, jitter, perda) usando Plotly.
     
     Args:
         measurements: Lista de medições (dict) ordenadas cronologicamente
         machine_tag: Tag da máquina para título
+        key_suffix: Sufixo único para o key do gráfico forçar re-render
     """
     if not measurements:
         st.info("Nenhuma medição disponível para o período selecionado.")
         return
     
     # Prepara dados para DataFrame com conversão para horário de São Paulo
-    df = pd.DataFrame([
-        {
-            "timestamp": pd.to_datetime(m.get("measured_at", "")).tz_convert("America/Sao_Paulo") if pd.to_datetime(m.get("measured_at", "")).tz is not None else pd.to_datetime(m.get("measured_at", "")),
-            "latency_ms": m.get("latency_ms"),
-            "jitter_ms": m.get("jitter_ms"),
-            "packet_loss_percent": m.get("packet_loss_percent", 0),
-            "status": m.get("status", ""),
-        }
-        for m in measurements
-    ])
+    try:
+        rows = []
+        for m in measurements:
+            ts = m.get("measured_at", "")
+            dt = pd.to_datetime(ts)
+            if dt.tz is not None and not pd.isna(dt):
+                dt_sp = dt.tz_convert("America/Sao_Paulo")
+            else:
+                dt_sp = dt
+            rows.append({
+                "timestamp": dt_sp,
+                "latency_ms": m.get("latency_ms"),
+                "jitter_ms": m.get("jitter_ms"),
+                "packet_loss_percent": m.get("packet_loss_percent", 0),
+                "status": m.get("status", ""),
+            })
+        df = pd.DataFrame(rows)
+    except Exception as exc:
+        st.error(f"Erro ao processar dados do gráfico: {exc}")
+        return
     
     # Cria subplots: latência + jitter (mesmo eixo Y) e perda (eixo separado)
     fig = make_subplots(
@@ -286,7 +297,7 @@ def render_metrics_charts(measurements: list[dict], machine_tag: str) -> None:
             name="Latência (ms)",
             line=dict(color="#1f77b4", width=2),
             marker=dict(size=4),
-            connectgaps=False,  # Não conecta pontos com latência None
+            connectgaps=False,
         ),
         row=1, col=1
     )
@@ -342,7 +353,8 @@ def render_metrics_charts(measurements: list[dict], machine_tag: str) -> None:
     fig.update_yaxes(title_text="ms", row=1, col=1)
     fig.update_yaxes(title_text="%", row=2, col=1, range=[0, max(10, df["packet_loss_percent"].max() * 1.2 if not df["packet_loss_percent"].isna().all() else 10)])
     
-    st.plotly_chart(fig, use_container_width=True)
+    chart_key = f"metrics_chart_{machine_tag}_{key_suffix}"
+    st.plotly_chart(fig, use_container_width=True, key=chart_key)
     
     # Estatísticas resumidas
     col1, col2, col3, col4 = st.columns(4)
