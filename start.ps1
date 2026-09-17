@@ -108,22 +108,22 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host ""
 }
 
-# Inicia monitor em janela separada
+# Inicia monitor em background oculto - pode fechar esta janela, continua rodando
 $venvPython = if (Test-Path "venv\Scripts\python.exe") { "$PSScriptRoot\venv\Scripts\python.exe" } else { "python" }
-Write-Host "Iniciando coleta de metricas (monitor)..."
-Start-Process "cmd.exe" -ArgumentList "/c", "$venvPython -m supadiag monitor" -WindowStyle Normal
+Write-Host "Iniciando coleta de metricas (monitor) em background..."
+Start-Process "cmd.exe" -ArgumentList "/c", "$venvPython -m supadiag monitor" -WindowStyle Hidden
 
-# Abre dashboard Streamlit em outra janela
+# Abre dashboard Streamlit em outra janela (pode fechar quando nao precisar)
 Write-Host "Abrindo dashboard Streamlit (http://localhost:8501)..."
 Start-Process "cmd.exe" -ArgumentList "/c", "streamlit run dashboard.py --server.port 8501 --server.headless true" -WindowStyle Normal
 
 Write-Host ""
 Write-Host "SupaDiag iniciado com sucesso!"
 Write-Host ""
-Write-Host "- Monitor rodando em janela separada (coleta conforme frequência de cada máquina)"
-Write-Host "- Dashboard Streamlit: http://localhost:8501"
+Write-Host "- Monitor rodando em background (feche as janelas, continua coletando)"
+Write-Host "- Dashboard Streamlit: http://localhost:8501 (pode fechar)"
 Write-Host "- Servico agendado no Windows Task Scheduler (inicia na inicializacao)"
 Write-Host "- Ver diario: supadiag diary"
-Write-Host "- Parar monitor: feche a janela 'SupaDiag Monitor'"
+Write-Host "- Parar monitor: supadiag service remove ou feche o processo"
 Write-Host ""
 Read-Host "Pressione Enter para sair"

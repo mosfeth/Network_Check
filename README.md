@@ -46,7 +46,7 @@ SupaDiag é uma ferramenta de monitoramento de rede que coleta métricas de lat�
 - **Traceroute**: estilo PingPlotter com análise por hop (windows `tracert` + unix `traceroute`)
 - **Dashboard Streamlit**: visualização interativa com gráficos Plotly, cards de máquinas e filtros
 - **Alertas em tempo real**: regras configuráveis por máquina com thresholds warn/crit, notificações no dashboard
-- **Agendador Windows**: serviço executa automaticamente no logon do usuário
+- **Agendador Windows**: serviço executa automaticamente na inicialização do sistema (em background)
 - **Fila local com retry**: medições enfileiradas localmente com retry em caso de falha de rede
 - **RLS no Supabase**: Row Level Security para service_role
 
@@ -91,16 +91,18 @@ SUPADIAG_DATA_DIR=data
 ### 3. Inicializar
 
 ```bash
-.\start.bat
+.\start.ps1
 ```
 
 O script irá:
 1. Criar/ativar o ambiente virtual (venv)
 2. Instalar dependências
 3. Verificar o arquivo `.env`
-4. Instalar o serviço no Agendador de Tarefas do Windows
-5. Iniciar o monitor (coleta contínua)
+4. Instalar o serviço no Agendador de Tarefas do Windows (inicia na inicialização)
+5. Iniciar o monitor (coleta contínua) em **background**
 6. Abrir o dashboard Streamlit
+
+> **Nota**: Após o `.\start.ps1` executar, o monitor continua rodando em background. Você pode fechar todas as janelas (dashboard, PowerShell) que a coleta continua. O serviço é reiniciado automaticamente a cada boot do sistema via Agendador de Tarefas.
 
 ---
 
@@ -120,10 +122,8 @@ O script irá:
 
 | Comando | Descrição |
 |---------|-----------|
-| `start.bat` | Inicialização completa (venv, deps, serviço, monitor + dashboard) |
-| `install_deps.bat` | Instala/atualiza apenas dependências |
-| `start.ps1` | Script PowerShell principal |
-| `install_deps.ps1` | Script PowerShell para instalar deps |
+| `start.bat` | Wrapper para start.ps1 (evita encoding) |
+| `start.ps1` | Script PowerShell principal (inicia em background) |
 
 ### DASHBOARD / INTERFACE
 
@@ -170,7 +170,7 @@ O script irá:
 | Comando | Descrição |
 |---------|-----------|
 | `supadiag service status` | Verifica se tarefa está instalada |
-| `supadiag service install` | Instala no Agendador (inicia no logon) |
+| `supadiag service install` | Instala no Agendador (inicia na inicializacao) |
 | `supadiag service remove` | Remove do Agendador |
 
 ### DIÁRIO
@@ -260,7 +260,7 @@ SupaDiag/
 │   ├── components.py            # Componentes UI (cards, gráficos, alertas)
 │   ├── repository.py            # Acesso a dados Supabase
 │   ├── config.py                # Configurações
-│   ├── start.bat/start.ps1/     # Launchers
+│   ├── start.bat              # Launcher isolado Streamlit
 │   └── requirements.txt
 ├── src/supadiag/                # Módulos principais
 │   ├── cli.py                   # CLI (supadiag)
@@ -313,7 +313,7 @@ pip install -e ".[dev]"
 ## Fluxo Típico
 
 1. Edite `.env` com credenciais do Supabase
-2. Execute `.\start.bat` (abre monitor + dashboard)
+2. Execute `.\start.ps1` (abre monitor em background + dashboard)
 3. No dashboard Streamlit (`http://localhost:8502`): Adicione Clientes → Adicione Máquinas
 4. O monitor coleta automaticamente conforme frequência de cada máquina
 5. Acompanhe métricas em Métricas | Traceroute | Alertas
