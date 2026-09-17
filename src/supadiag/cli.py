@@ -3,12 +3,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+import time
 from pathlib import Path
 
 from .config import ConfigError, load_settings, ensure_runtime_files, public_dict
 from .diary import Diary
 from .monitor import MonitorService
 from .queue import LocalQueue
+from .scheduler import SchedulerError
 from .supabase_repository import SupabaseRepository
 
 
@@ -64,6 +66,7 @@ def create_parser() -> argparse.ArgumentParser:
     service_sub = service_parser.add_subparsers(dest="service_action", required=True)
     service_sub.add_parser("install", help="Instala tarefa no Agendador")
     service_sub.add_parser("status", help="Status da tarefa")
+    service_sub.add_parser("restart", help="Reinicia a tarefa")
     service_sub.add_parser("remove", help="Remove tarefa")
 
     # diary
@@ -180,14 +183,39 @@ def cmd_service(args: argparse.Namespace) -> int:
     from .scheduler import WindowsScheduler
     scheduler = WindowsScheduler(settings)
     if args.service_action == "install":
-        status = scheduler.install()
-        print(f"Tarefa instalada: {status.installed}")
-        print(status.output)
-        diary.log("SERVICO_INSTALADO", "Tarefa agendada criada")
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                status = scheduler.install()
+                print(f"Tarefa instalada: {status.installed}")
+                print(status.output)
+                diary.log("SERVICO_INSTALADO", "Tarefa agendada criada")
+                break
+            except SchedulerError as exc:
+                if attempt < max_retries - 1:
+                    print(f"Tentativa {attempt + 1} falhou: {exc}. Tentando novamente em 2 segundos...")
+                    time.sleep(2)
+                else:
+                    raise
     elif args.service_action == "status":
         status = scheduler.status()
         print(f"Instalada: {status.installed}")
         print(status.output)
+    elif args.service_action == "restart":
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                status = scheduler.restart()
+                print(f"Tarefa reiniciada: {status.installed}")
+                print(status.output)
+                diary.log("SERVICO_REINICIADO", "Tarefa agendada reiniciada")
+                break
+            except SchedulerError as exc:
+                if attempt < max_retries - 1:
+                    print(f"Tentativa {attempt + 1} falhou: {exc}. Tentando novamente em 2 segundos...")
+                    time.sleep(2)
+                else:
+                    raise
     elif args.service_action == "remove":
         scheduler.remove()
         print("Tarefa removida")
