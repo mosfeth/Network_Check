@@ -36,7 +36,8 @@ class WindowsScheduler:
             "/TR",
             action,
             "/SC",
-            "ONLOGON",
+            "ONSTART",
+            "/V1",
             "/RL",
             "LIMITED",
         ]

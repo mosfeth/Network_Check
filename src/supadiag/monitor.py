@@ -349,6 +349,11 @@ class MonitorService:
                 self.diary.log("LIMPEZA", f"Medições antigas removidas (>{self.settings.retention_days} dias)")
             except Exception as exc:
                 self.diary.log("ERRO_LIMPEZA", "Falha ao limpar medições antigas", {"error": str(exc)})
+            try:
+                await asyncio.to_thread(self.repository.cleanup_internet_check_traceroutes)
+                self.diary.log("LIMPEZA", "Traceroutes INTERNET-CHECK removidos")
+            except Exception as exc:
+                self.diary.log("ERRO_LIMPEZA", "Falha ao limpar traceroutes INTERNET-CHECK", {"error": str(exc)})
             self._last_cleanup = now
 
     def _is_alert_due(self, machine_id: str, now: float) -> bool:

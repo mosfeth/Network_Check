@@ -67,7 +67,7 @@ if ($LASTEXITCODE -ne 0) {
         Read-Host "Pressione Enter para sair"
         exit 1
     }
-    Write-Host "Servico instalado com sucesso (executa no logon do usuario)."
+    Write-Host "Servico instalado com sucesso (executa na inicializacao do sistema)."
 } else {
     Write-Host "Servico ja instalado."
 }
@@ -113,7 +113,7 @@ Write-Host "SupaDiag iniciado com sucesso!"
 Write-Host ""
 Write-Host "- Monitor rodando em janela separada (coleta conforme frequência de cada máquina)"
 Write-Host "- Dashboard Streamlit: http://localhost:8501"
-Write-Host "- Servico agendado no Windows Task Scheduler (inicia no logon)"
+Write-Host "- Servico agendado no Windows Task Scheduler (inicia na inicializacao)"
 Write-Host "- Ver diario: supadiag diary"
 Write-Host "- Parar monitor: feche a janela 'SupaDiag Monitor'"
 Write-Host ""
