@@ -379,3 +379,16 @@ class SupabaseRepository:
             if label in stats:
                 stats[label] += 1
         return stats
+
+    def get_machine_accuracy(self, machine_id: str) -> float:
+        """Calcula acurácia da máquina baseada nos feedbacks (bom = 1.0, medio = 0.5, ruim = 0.0)."""
+        stats = self.get_feedback_stats(machine_id)
+        total = stats["total"]
+        if total == 0:
+            return 0.0
+        score = stats["bom"] * 1.0 + stats["medio"] * 0.5 + stats["ruim"] * 0.0
+        return round(score / total * 100, 1)
+
+    def get_ai_events(self, limit: int = 20) -> list[dict]:
+        """Retorna eventos de treinamento/IA (placeholder - integrar com tabela de logs de treino)."""
+        return []

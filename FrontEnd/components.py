@@ -197,6 +197,77 @@ def render_machine_card(
             unsafe_allow_html=True,
         )
         
+        # ========== ACURÁCIA E GRÁFICO DE EVOLUÇÃO ==========
+        # Calcula acurácia baseada nos feedbacks da máquina
+        try:
+            from AI.data import build_training_row
+            from AI.predict import predict_measurement
+            
+            # Busca feedbacks da máquina para calcular acurácia
+            from supabase import create_client
+            from config import settings as fe_settings
+            sb = create_client(fe_settings.SUPABASE_URL, fe_settings.SUPABASE_KEY)
+            feedbacks = sb.table("machine_feedback").select("*").eq("machine_id", machine.id).order("created_at", desc=True).limit(100).execute().data or []
+            
+            if feedbacks:
+                total = len(feedbacks)
+                score = sum(1.0 if f["label"] == "bom" else 0.5 if f["label"] == "medio" else 0.0 for f in feedbacks)
+                accuracy = round(score / total * 100, 1)
+                
+                # Exibe acurácia
+                acc_color = "#28a745" if accuracy >= 80 else "#ffc107" if accuracy >= 50 else "#dc3545"
+                st.markdown(
+                    f'<div style="background:{acc_color}20;border:1px solid {acc_color};border-radius:6px;padding:8px;margin:8px 0;">'
+                    f'<strong style="color:{acc_color};">🎯 Acurácia: {accuracy}%</strong> '
+                    f'<span style="color:#888;">({len(feedbacks)} feedbacks)</span>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+                
+                # Gráfico de evolução da acurácia
+                # Calcula acurácia acumulada ao longo do tempo
+                feedbacks_sorted = sorted(feedbacks, key=lambda x: x["created_at"])
+                acc_history = []
+                cumulative_score = 0
+                for i, fb in enumerate(feedbacks_sorted, 1):
+                    val = 1.0 if fb["label"] == "bom" else 0.5 if fb["label"] == "medio" else 0.0
+                    cumulative_score += val
+                    acc_history.append({
+                        "feedback": i,
+                        "acuracia": round(cumulative_score / i * 100, 1),
+                        "data": fb["created_at"][:10]
+                    })
+                
+                import pandas as pd
+                df_acc = pd.DataFrame(acc_history)
+                
+                import plotly.graph_objects as go
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=df_acc["feedback"],
+                    y=df_acc["acuracia"],
+                    mode='lines+markers',
+                    name='Acurácia',
+                    line=dict(color='#1f77b4', width=2),
+                    marker=dict(size=6),
+                    hovertemplate='Feedback %{x}<br>Acurácia: %{y}%<extra></extra>'
+                ))
+                fig.add_hline(y=80, line_dash="dash", line_color="green", annotation_text="Meta 80%")
+                fig.update_layout(
+                    title="Evolução da Acurácia",
+                    xaxis_title="Nº Feedback",
+                    yaxis_title="Acurácia (%)",
+                    yaxis=dict(range=[0, 105]),
+                    height=200,
+                    margin=dict(l=20, r=20, t=30, b=20),
+                    template="plotly_white"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("📊 Sem feedbacks suficientes para mostrar acurácia e gráfico")
+        except Exception as e:
+            st.caption(f"Dados de acurácia indisponíveis: {e}")
+        
         # Botão para ver detalhes
         if st.button(f"▶ Ver detalhes: {machine.tag}", key=f"card_{machine.id}", use_container_width=True):
             on_click(machine.id)

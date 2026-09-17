@@ -113,7 +113,7 @@ CREATE TABLE IF NOT EXISTS public.machine_feedback (
     hour_of_day int,
     day_of_week int,
     notes text,
-    created_at timestamptz NOT NULL DEFAULT now(),
+    created_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_feedback_machine ON public.machine_feedback(machine_id);

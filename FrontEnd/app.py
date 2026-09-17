@@ -481,6 +481,45 @@ def main() -> None:
         else:
             st.error("❌ Cloud Offline")
         
+        # Seção IA no sidebar
+        st.divider()
+        st.markdown("### 🤖 Rede Neural")
+        
+        # Estatísticas gerais de IA
+        try:
+            all_feedbacks = repo.list_machine_feedback(limit=1000)
+            if all_feedbacks:
+                total_fb = len(all_feedbacks)
+                bom = sum(1 for f in all_feedbacks if f.get("label") == "bom")
+                medio = sum(1 for f in all_feedbacks if f.get("label") == "medio")
+                ruim = sum(1 for f in all_feedbacks if f.get("label") == "ruim")
+                acc = round((bom * 1.0 + medio * 0.5) / total_fb * 100, 1) if total_fb > 0 else 0
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Acurácia Global", f"{acc}%")
+                with col2:
+                    st.metric("Feedbacks", f"{total_fb}")
+                
+                st.progress(acc / 100)
+            else:
+                st.caption("Sem feedbacks ainda")
+        except Exception:
+            st.caption("Dados de IA indisponíveis")
+        
+        # Eventos de IA (treinamento, etc)
+        st.divider()
+        st.markdown("### 🧠 Eventos IA")
+        try:
+            ai_events = repo.get_ai_events(10)
+            if ai_events:
+                for event in ai_events:
+                    st.caption(f"• {event}")
+            else:
+                st.caption("Nenhum evento de IA registrado")
+        except Exception:
+            st.caption("Eventos IA indisponíveis")
+
         # Alertas ativos no sidebar
         st.divider()
         st.markdown("### 🔔 Alertas Ativos")
