@@ -35,6 +35,10 @@ if ($supadiagProcesses) {
     Start-Sleep -Seconds 1
 }
 
+# Refresca PATH apos ativacao do venv
+$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + $env:Path
+$env:Path = $PSScriptRoot + "\venv\Scripts;" + $env:Path
+
 # 3. Instala/atualiza dependencias
 Write-Host "[3/6] Verificando/Instalando dependencias..."
 pip install -e ".[dev]"
@@ -45,6 +49,9 @@ if ($LASTEXITCODE -ne 0) {
 } else {
     Write-Host "Dependencias OK."
 }
+# Refresca PATH apos instalacao (Windows precisa disso para reconhecer novos comandos)
+$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + $env:Path
+if (Test-Path "venv\Scripts") { $env:Path = $PSScriptRoot + "\venv\Scripts;" + $env:Path }
 
 # 4. Verifica arquivo .env
 Write-Host "[4/6] Verificando configuracao (.env)..."
@@ -57,10 +64,11 @@ if (-not (Test-Path ".env")) {
 
 # 5. Verifica/instala servico no Agendador de Tarefas
 Write-Host "[5/6] Verificando servico no Agendador de Tarefas..."
-supadiag service status >$null 2>&1
+$supadiagCmd = if (Get-Command supadiag -ErrorAction SilentlyContinue) { "supadiag" } else { "python -m supadiag" }
+& $supadiagCmd service status >$null 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Servico nao encontrado. Instalando..."
-    supadiag service install
+    & $supadiagCmd service install
     if ($LASTEXITCODE -ne 0) {
         Write-Error "ERRO: Falha ao instalar servico no Agendador de Tarefas."
         Write-Host "Verifique se esta rodando como Administrador se necessario."
@@ -93,7 +101,7 @@ Write-Host "=========================================="
 Write-Host ""
 
 # Testa conexao Supabase antes de iniciar
-supadiag check
+& $supadiagCmd check
 if ($LASTEXITCODE -ne 0) {
     Write-Warning "AVISO: Conexao com Supabase falhou. Verifique .env e rede."
     Write-Host "O monitor tentara reconectar automaticamente."
@@ -101,8 +109,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # Inicia monitor em janela separada
+$venvPython = if (Test-Path "venv\Scripts\python.exe") { "$PSScriptRoot\venv\Scripts\python.exe" } else { "python" }
 Write-Host "Iniciando coleta de metricas (monitor)..."
-Start-Process "cmd.exe" -ArgumentList "/c", "supadiag monitor" -WindowStyle Normal
+Start-Process "cmd.exe" -ArgumentList "/c", "$venvPython -m supadiag monitor" -WindowStyle Normal
 
 # Abre dashboard Streamlit em outra janela
 Write-Host "Abrindo dashboard Streamlit (http://localhost:8501)..."
