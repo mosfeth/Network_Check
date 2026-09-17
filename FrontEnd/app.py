@@ -401,10 +401,8 @@ def render_detail_view(repo: FrontendRepository) -> None:
                         "data": fb["created_at"][:10]
                     })
                 
-                import pandas as pd
                 df_acc = pd.DataFrame(acc_history)
                 
-                import plotly.graph_objects as go
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(
                     x=df_acc["feedback"],
